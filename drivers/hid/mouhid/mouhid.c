@@ -1239,6 +1239,24 @@ MouHid_QueryDeviceParameters(
         DeviceExtension->FlipFlopWheel = (*(PULONG)Value->Data != 0);
 
     ZwClose(KeyHandle);
+
+    /* A system-wide policy wins over the per-device Windows setting. */
+    {
+        UNICODE_STRING Path = RTL_CONSTANT_STRING(L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Control\\Mouse");
+        OBJECT_ATTRIBUTES Attributes;
+
+        InitializeObjectAttributes(&Attributes, &Path,
+                                   OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
+                                   NULL, NULL);
+        if (NT_SUCCESS(ZwOpenKey(&KeyHandle, KEY_READ, &Attributes)))
+        {
+            Status = ZwQueryValueKey(KeyHandle, &ValueName, KeyValuePartialInformation,
+                                     Value, sizeof(Buffer), &Length);
+            if (NT_SUCCESS(Status) && Value->Type == REG_DWORD && Value->DataLength == sizeof(ULONG))
+                DeviceExtension->FlipFlopWheel = (*(PULONG)Value->Data != 0);
+            ZwClose(KeyHandle);
+        }
+    }
 }
 
 NTSTATUS

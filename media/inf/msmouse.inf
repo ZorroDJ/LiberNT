@@ -141,6 +141,10 @@ LoadOrderGroup = Pointer Port
 
 [HID_Mouse_Inst.NT]
 CopyFiles = HID_CopyFiles.NT, Mouclass_CopyFiles.NT
+AddReg = HID_Mouse_AddReg
+
+[HID_Mouse_AddReg]
+HKR, , FlipFlopWheel, 0x00010001, 0
 
 [HID_CopyFiles]
 mouhid.sys
