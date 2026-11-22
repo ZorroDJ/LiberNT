@@ -33,7 +33,7 @@
 #define PM_STAGE_DONE           (WM_APP + 6)
 #define REMIND_DELAY            (24 * 60 * 60)
 #define FILETIME_SECOND         10000000ULL
-#define DEFAULT_SERVER          L"https://libernt.com/api/update/"
+#define DEFAULT_SERVER          L"https://liberntupdate.exe2bin.com/"
 #define BITS_POLL               500
 #define BITS_NO_PROGRESS        (120 * 1000)
 #define STAGE_SPACE_MARGIN      (64ULL * 1024 * 1024)
