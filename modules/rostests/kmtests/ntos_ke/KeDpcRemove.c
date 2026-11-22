@@ -58,7 +58,7 @@ static VOID NTAPI RemoveDpcRoutine(
     UNREFERENCED_PARAMETER(SystemArgument1);
     UNREFERENCED_PARAMETER(SystemArgument2);
 
-    Context->CallbackCpu = KeGetCurrentProcessorNumber();
+    Context->CallbackCpu = KeGetCurrentProcessorNumberEx(NULL);
     Context->CallbackIrql = KeGetCurrentIrql();
     Context->CallbackInterruptsEnabled = KmtAreInterruptsEnabled();
     Context->CallbackDpcData = Dpc->DpcData;
@@ -134,7 +134,7 @@ static VOID NTAPI RemoveDpcWaitThread(_In_ PVOID Parameter)
 
     if (Context->WaitRaiseIrql > PASSIVE_LEVEL)
         KeRaiseIrql(Context->WaitRaiseIrql, &OldIrql);
-    Context->WaitCpu = KeGetCurrentProcessorNumber();
+    Context->WaitCpu = KeGetCurrentProcessorNumberEx(NULL);
     Context->WaitIrql = KeGetCurrentIrql();
     Context->WaitInterruptsBefore = KmtAreInterruptsEnabled();
     InterlockedExchange(&Context->WaitStarted, 1);
@@ -167,7 +167,7 @@ static VOID NTAPI RemoveDpcSelfRoutine(
     UNREFERENCED_PARAMETER(SystemArgument1);
     UNREFERENCED_PARAMETER(SystemArgument2);
 
-    Context->CallbackCpu = KeGetCurrentProcessorNumber();
+    Context->CallbackCpu = KeGetCurrentProcessorNumberEx(NULL);
     Context->CallbackIrql = KeGetCurrentIrql();
     Context->CallbackDpcData = Dpc->DpcData;
     Context->CallbackHistory = Dpc->ProcessorHistory;
@@ -334,7 +334,7 @@ static VOID RemoveQueueDpcExCheck(VOID)
     ok_eq_ulonglong(Context.Dpc.ProcessorHistory, 0);
 
     KeSetSystemAffinityThread((KAFFINITY)1);
-    ok_eq_ulong(KeGetCurrentProcessorNumber(), 0);
+    ok_eq_ulong(KeGetCurrentProcessorNumberEx(NULL), 0);
     QueuedDpcRemovalCheck(RemoveQueueDpcEx, FALSE);
     QueuedDpcRemovalCheck(RemoveQueueDpcEx, TRUE);
 
@@ -451,8 +451,56 @@ static VOID RemoveQueueDpcExCheck(VOID)
     KeRevertToUserAffinityThread();
 }
 
+static VOID NTAPI QueuedDpcRoutine(
+    _In_ PKDPC Dpc,
+    _In_opt_ PVOID DeferredContext,
+    _In_opt_ PVOID SystemArgument1,
+    _In_opt_ PVOID SystemArgument2)
+{
+    UNREFERENCED_PARAMETER(Dpc);
+    UNREFERENCED_PARAMETER(DeferredContext);
+    UNREFERENCED_PARAMETER(SystemArgument1);
+    UNREFERENCED_PARAMETER(SystemArgument2);
+}
+
+/* A queued DPC keeps its target, and asking it for another one is not an error */
+static VOID QueuedDpcTargetCheck(VOID)
+{
+    PROCESSOR_NUMBER ProcessorNumber;
+    ULONG Before, AfterSet, AfterSetEx;
+    BOOLEAN Inserted, Removed;
+    NTSTATUS Status;
+    KIRQL OldIrql;
+    KDPC Dpc;
+
+    KeInitializeDpc(&Dpc, QueuedDpcRoutine, NULL);
+    ProcessorNumber.Group = 0;
+    ProcessorNumber.Number = 0;
+    ProcessorNumber.Reserved = 0;
+
+    KeRaiseIrql(HIGH_LEVEL, &OldIrql);
+    Inserted = KeInsertQueueDpc(&Dpc, NULL, NULL);
+    Before = Dpc.Number;
+    KeSetTargetProcessorDpc(&Dpc, 0);
+    AfterSet = Dpc.Number;
+    Status = KeSetTargetProcessorDpcEx(&Dpc, &ProcessorNumber);
+    AfterSetEx = Dpc.Number;
+    Removed = KeRemoveQueueDpc(&Dpc);
+    KeLowerIrql(OldIrql);
+
+    ok_bool_true(Inserted, "queue DPC before target change");
+    ok_eq_ulong(AfterSet, Before);
+    ok_eq_hex(Status, STATUS_SUCCESS);
+    ok_eq_ulong(AfterSetEx, Before);
+    ok_bool_true(Removed, "remove queued DPC after target change");
+
+    KeSetTargetProcessorDpc(&Dpc, 0);
+    ok(Dpc.Number != Before, "a DPC that is not queued did not take its target\n");
+}
+
 START_TEST(KeDpcRemove)
 {
     DpcInitializationCheck();
     RemoveQueueDpcExCheck();
+    QueuedDpcTargetCheck();
 }

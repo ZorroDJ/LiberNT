@@ -251,7 +251,7 @@ TestCreateSection(
         }
         else
         {
-#ifdef _M_IX86
+#ifndef _WIN64
             PointerCount1 = 31;
             PointerCount2 = 33;
 #else
@@ -633,34 +633,24 @@ TestPhysicalMemorySection(VOID)
     RtlFillMemory(MyPage + 2 * PAGE_SIZE / 4, PAGE_SIZE / 4, 0xab);
     RtlFillMemory(MyPage + 3 * PAGE_SIZE / 4, PAGE_SIZE / 4, 0xef);
 
-    ZeroPageContents = ExAllocatePoolWithTag(PagedPool, PAGE_SIZE, 'ZPmK');
-    if (skip(ZeroPageContents != NULL, "Out of memory\n"))
-    {
-        ExFreePoolWithTag(MyPage, 'MPmK');
-        return;
-    }
     Ranges = MmGetPhysicalMemoryRanges();
     if (skip(Ranges != NULL && Ranges[0].NumberOfBytes.QuadPart != 0, "No physical memory ranges\n"))
     {
         if (Ranges != NULL)
             ExFreePool(Ranges);
-        ExFreePoolWithTag(ZeroPageContents, 'ZPmK');
         ExFreePoolWithTag(MyPage, 'MPmK');
         return;
     }
     ZeroPagePhysical = Ranges[0].BaseAddress;
     ExFreePool(Ranges);
 
-    Mapping = MmMapIoSpace(ZeroPagePhysical, PAGE_SIZE, MmCached);
-    if (skip(Mapping != NULL, "Failed to map zero page\n"))
+    /* The page can be a live page table that mapping and unmapping it changes, so it stays mapped and the views are compared with it as it is */
+    ZeroPageContents = MmMapIoSpace(ZeroPagePhysical, PAGE_SIZE, MmCached);
+    if (skip(ZeroPageContents != NULL, "Failed to map zero page\n"))
     {
-        ExFreePoolWithTag(ZeroPageContents, 'ZPmK');
         ExFreePoolWithTag(MyPage, 'MPmK');
         return;
     }
-
-    RtlCopyMemory(ZeroPageContents, Mapping, PAGE_SIZE);
-    MmUnmapIoSpace(Mapping, PAGE_SIZE);
 
     InitializeObjectAttributes(&ObjectAttributes,
                                &SectionName,
@@ -1054,7 +1044,7 @@ TestPhysicalMemorySection(VOID)
             ObDereferenceObject(SectionObject);
     }
 
-    ExFreePoolWithTag(ZeroPageContents, 'ZPmK');
+    MmUnmapIoSpace(ZeroPageContents, PAGE_SIZE);
     ExFreePoolWithTag(MyPage, 'MPmK');
 }
 
@@ -1107,7 +1097,7 @@ START_TEST(MmSection)
     ok(FileHandle1 != NULL, "FileHandle1 is NULL\n");
     if (GetNTVersion() < _WIN32_WINNT_WIN8)
         CheckObject(FileHandle1, 2L, 1L);
-#ifdef _M_IX86
+#ifndef _WIN64
     else
         CheckObject(FileHandle1, 33L, 1L);
 #else
@@ -1131,7 +1121,7 @@ START_TEST(MmSection)
         ok(FileObject1 != NULL, "FileObject1 is NULL\n");
         if (GetNTVersion() < _WIN32_WINNT_WIN8)
             CheckObject(FileHandle1, 3L, 1L);
-#ifdef _M_IX86
+#ifndef _WIN64
         else
             CheckObject(FileHandle1, 32L, 1L);
 #else

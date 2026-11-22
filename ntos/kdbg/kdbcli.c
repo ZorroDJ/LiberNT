@@ -477,15 +477,19 @@ BOOLEAN
 KdbpStartStepping(
     _In_ ULONG Count)
 {
+    NTSTATUS Status;
+
     if (KdbCurrentTrapFrame == NULL)
     {
         KdbPuts("There is no stopped thread to step\n");
         return TRUE;
     }
 
-    if (!NT_SUCCESS(KdbpArchSetSingleStep(KdbCurrentTrapFrame, TRUE)))
+    Status = KdbpArchSetSingleStep(KdbCurrentTrapFrame, TRUE);
+    if (!NT_SUCCESS(Status))
     {
-        KdbPuts("The next instruction cannot be stepped to\n");
+        KdbPuts((Status == STATUS_NOT_SUPPORTED) ? "Stepping is not supported on this processor\n"
+                                                 : "The next instruction cannot be stepped to\n");
         return TRUE;
     }
 
@@ -1771,11 +1775,17 @@ KdbpEditMemory(
 
     for (Index = 2; Index < Argc; Index++)
     {
-        ULONG_PTR Value = 0;
+        ULONGLONG Value = 0;
         ULONG_PTR At = Address + ((ULONG_PTR)(Index - 2) * Width);
+        CHAR ErrorMessage[128];
+        LONG ErrorOffset = 0;
 
-        if (!KdbpGetAddressExpression(Argv[Index], &Value))
+        /* A value is as wide as the widest unit, whatever the width of an address */
+        if (!KdbpRpnEvaluateExpression(Argv[Index], KdbpContext(), &Value, &ErrorOffset, ErrorMessage))
+        {
+            KdbpPrint("%s at offset %ld\n", ErrorMessage, ErrorOffset);
             return TRUE;
+        }
 
         if (!NT_SUCCESS(KdbpSafeWriteMemory((PVOID)At, &Value, Width)))
         {

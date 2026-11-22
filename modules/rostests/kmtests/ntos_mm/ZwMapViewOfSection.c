@@ -171,7 +171,7 @@ SimpleErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly, HANDLE 
     }
 
     //zero bits
-#ifdef _M_IX86
+#ifndef _WIN64
     TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 1, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
     TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, 5, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_SUCCESS, STATUS_SUCCESS);
     TestMapView(WriteSectionHandle, NtCurrentProcess(), &BaseAddress, -1, 0, NULL, &ViewSize, ViewUnmap, 0, PAGE_READWRITE, STATUS_INVALID_PARAMETER_4, IGNORE);
@@ -273,8 +273,11 @@ AdvancedErrorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     //Bypassing Zw function calls mean bypassing the alignment checks which are not crucial for the branches being tested here
 
     //test first conditional branch
+    /* A view of every address cannot fit anywhere; the base is given so that no search for one decides the status. */
+    BaseAddress = (PVOID)(ULONG_PTR)0x10000000;
+    SectionOffset.QuadPart = 0;
     ViewSize = -1;
-#ifdef _M_IX86
+#ifndef _WIN64
     NTSTATUS MapStatus;
 
     switch (GetNTVersion())
@@ -360,7 +363,7 @@ SystemProcessWorker(PVOID StartContext)
     UNREFERENCED_PARAMETER(StartContext);
 
     if (GetNTVersion() >= _WIN32_WINNT_WIN8)
-#ifdef _M_IX86
+#ifndef _WIN64
         PtrCnt = 64;
 #else
         PtrCnt = 65536;
@@ -422,7 +425,7 @@ BehaviorChecks(HANDLE FileHandleReadOnly, HANDLE FileHandleWriteOnly)
     ULONG PtrCnt;
 
     if (GetNTVersion() >= _WIN32_WINNT_WIN8)
-#ifdef _M_IX86
+#ifndef _WIN64
         PtrCnt = 34;
 #else
         PtrCnt = 32770;
@@ -579,7 +582,7 @@ PageFileBehaviorChecks()
     ULONG PtrCnt;
 
     if (GetNTVersion() >= _WIN32_WINNT_WIN8)
-#ifdef _M_IX86
+#ifndef _WIN64
         PtrCnt = 34;
 #else
         PtrCnt = 32770;

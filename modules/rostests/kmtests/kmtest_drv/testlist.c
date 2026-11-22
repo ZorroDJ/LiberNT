@@ -354,11 +354,13 @@ KMT_TESTFUNC Test_KeCycleTime;
 KMT_TESTFUNC Test_KeQueryBasePriority;
 KMT_TESTFUNC Test_KeProcessor;
 KMT_TESTFUNC Test_KePriorityRaise;
+KMT_TESTFUNC Test_KeQuantumBalance;
 KMT_TESTFUNC Test_KeQuantumEnd;
 KMT_TESTFUNC Test_KeSpinLock;
 KMT_TESTFUNC Test_KeThreadedDpc;
 KMT_TESTFUNC Test_KeTime;
 KMT_TESTFUNC Test_KeTimer2KM;
+KMT_TESTFUNC Test_KeUnalignedAccess;
 KMT_TESTFUNC Test_MmSecureKM;
 KMT_TESTFUNC Test_KeTimer;
 KMT_TESTFUNC Test_KeWaitMultiple;
@@ -812,6 +814,7 @@ const KMT_TEST TestList[] =
     { "KeQueryBasePriority",                Test_KeQueryBasePriority },
     { "KeProcessor",                        Test_KeProcessor },
     { "KePriorityRaise",                    Test_KePriorityRaise },
+    { "KeQuantumBalance",                   Test_KeQuantumBalance },
     { "KeQuantumEnd",                       Test_KeQuantumEnd },
     { "KeSemaphore",                        Test_KeSemaphore },
     { "KeSpinLock",                         Test_KeSpinLock },
@@ -819,6 +822,7 @@ const KMT_TEST TestList[] =
     { "KeTime",                             Test_KeTime },
     { "KeTimer",                            Test_KeTimer },
     { "KeTimer2KM",                         Test_KeTimer2KM },
+    { "KeUnalignedAccess",                  Test_KeUnalignedAccess },
     { "KeWaitMultiple",                     Test_KeWaitMultiple },
     { "KernelType",                         Test_KernelType },
     { "MmAllocateContiguousNode",           Test_MmAllocateContiguousNode },

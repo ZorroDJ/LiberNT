@@ -17,6 +17,9 @@
 #define KDB_TEST_MAX_BREAKPOINTS 64
 #define KDB_TEST_SLOW_MS        250
 
+/* Where a function's first instruction is: a pointer to Thumb code is one above it */
+#define KDB_TEST_CODE(Pointer)  ((ULONG_PTR)(Pointer) & ~(ULONG_PTR)(KD_BREAKPOINT_SIZE - 1))
+
 typedef VOID (*PKDB_TEST_ROUTINE)(VOID);
 
 typedef struct _KDB_TEST_GROUP
@@ -422,11 +425,11 @@ KdbpTestExpressions(VOID)
     KdbpTestFormat(Line, "*0x%p", &KdbpTestPointers[0]);
     KdbpTestExpression(Line, TRUE, (ULONGLONG)(ULONG_PTR)KdbpTestPointers[0]);
 
-    KdbpTestExpression("KdbpCmdSelfTest", TRUE, (ULONGLONG)(ULONG_PTR)KdbpCmdSelfTest);
-    KdbpTestExpression("ntoskrnl.exe!KdbpCmdSelfTest", TRUE, (ULONGLONG)(ULONG_PTR)KdbpCmdSelfTest);
-    KdbpTestExpression("ntoskrnl!KdbpCmdSelfTest", TRUE, (ULONGLONG)(ULONG_PTR)KdbpCmdSelfTest);
-    KdbpTestExpression("nt!KdbpCmdSelfTest", TRUE, (ULONGLONG)(ULONG_PTR)KdbpCmdSelfTest);
-    KdbpTestExpression("KdbpCmdSelfTest+0x10-0x10", TRUE, (ULONGLONG)(ULONG_PTR)KdbpCmdSelfTest);
+    KdbpTestExpression("KdbpCmdSelfTest", TRUE, (ULONGLONG)KDB_TEST_CODE(KdbpCmdSelfTest));
+    KdbpTestExpression("ntoskrnl.exe!KdbpCmdSelfTest", TRUE, (ULONGLONG)KDB_TEST_CODE(KdbpCmdSelfTest));
+    KdbpTestExpression("ntoskrnl!KdbpCmdSelfTest", TRUE, (ULONGLONG)KDB_TEST_CODE(KdbpCmdSelfTest));
+    KdbpTestExpression("nt!KdbpCmdSelfTest", TRUE, (ULONGLONG)KDB_TEST_CODE(KdbpCmdSelfTest));
+    KdbpTestExpression("KdbpCmdSelfTest+0x10-0x10", TRUE, (ULONGLONG)KDB_TEST_CODE(KdbpCmdSelfTest));
 
     /* An expression is all the words after the command, not just the first */
     KdbpTestCommand("? 5 - 3", "2 (0x2)", NULL);
@@ -575,6 +578,18 @@ KdbpTestBreakPoints(VOID)
                       "bc put the instruction back");
         KdbpTestCheck(!KdbpGetBreakPointInfo((ULONG)Number, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL),
                       "bc gave the breakpoint up");
+    }
+
+    /* An address inside an instruction as long as the breakpoint names the instruction it is in */
+    if (sizeof(KD_BREAKPOINT_TYPE) > 1)
+    {
+        KdbpTestFormat(Line, "bp 0x%p", Target + 1);
+        KdbpTestRun(Line, NULL);
+        KdbpTestCheck(RtlCompareMemory(Target, &Instruction, sizeof(Instruction)) == sizeof(Instruction),
+                      "bp inside an instruction wrote the breakpoint at its start");
+        KdbpTestRestore();
+        KdbpTestCheck(RtlCompareMemory(Target, &Original, sizeof(Original)) == sizeof(Original),
+                      "the breakpoint inside an instruction was taken back");
     }
 
     KdbpTestFormat(Line, "bp 0x%p kdbtest_zz", Target);
@@ -1041,6 +1056,7 @@ VOID
 KdbpTestMoreMemory(VOID)
 {
     CHAR Line[KDB_TEST_LINE_MAX];
+    CHAR Unreadable[KDB_TEST_LINE_MAX];
     PHYSICAL_ADDRESS Physical;
     PCSTR Output;
     ULONG Index;
@@ -1081,7 +1097,8 @@ KdbpTestMoreMemory(VOID)
     KdbpTestCommand(Line, "2 entries shown, and there are more", NULL);
     KdbpTestListItems[1].Flink = (PLIST_ENTRY)(ULONG_PTR)1;
     KdbpTestFormat(Line, "!list 0x%p", &KdbpTestListHead);
-    KdbpTestCommand(Line, "cannot be read at 0000000000000001", NULL);
+    KdbpTestFormat(Unreadable, "cannot be read at %p", (PVOID)(ULONG_PTR)1);
+    KdbpTestCommand(Line, Unreadable, NULL);
     KdbpTestBuildList();
 }
 
@@ -1157,6 +1174,19 @@ KdbpTestControl(VOID)
     KdbpTestCommand("g kdbtest_zz", "no such", NULL);
     KdbpTestCommand("g 1 2", "more than", NULL);
 
+    /* Only a breakpoint under the program counter is stepped over when the machine runs again */
+    KdbpTestFormat(Line, "g 0x%p", Target);
+    KdbpTestRun(Line, &Resumed);
+    Number = KdbpTestNewBreakPoint();
+    Caller = *KdbCurrentTrapFrame;
+    KeSetContextPc(&Caller, (ULONG_PTR)Target);
+    KdbpTestCheck((Number >= 0) && KdbpStandsOnBreakPoint(Number, &Caller),
+                  "the breakpoint the machine stands on is stepped over");
+    KeSetContextPc(&Caller, (ULONG_PTR)Target + sizeof(KD_BREAKPOINT_TYPE));
+    KdbpTestCheck((Number >= 0) && !KdbpStandsOnBreakPoint(Number, &Caller),
+                  "a breakpoint the machine does not stand on stays in memory");
+    KdbpTestRestore();
+
     /* gu runs to where this function returns, once the stack is back above it */
     Caller = *KdbCurrentTrapFrame;
     if (KiUnwindFrame(&Caller, FALSE))
@@ -1165,7 +1195,7 @@ KdbpTestControl(VOID)
         Number = KdbpTestNewBreakPoint();
         KdbpTestCheck(Resumed && (Number >= 0) &&
                       KdbpGetBreakPointInfo((ULONG)Number, &Address, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &Condition) &&
-                      (Address == (ULONG_PTR)KeGetContextPc(&Caller)) &&
+                      (Address == KDB_TEST_CODE(KeGetContextPc(&Caller))) &&
                       (Condition != NULL) && (strstr(Condition, "sp >= ") != NULL),
                       "gu runs to the return address with the stack above this frame");
         KdbpTestRestore();

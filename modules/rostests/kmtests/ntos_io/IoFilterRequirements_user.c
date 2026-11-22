@@ -1203,7 +1203,6 @@ static DWORD WINAPI LoadFixtureDriver(PVOID Context)
  * A device set up while its driver is still in the DriverEntry of that load waits for the load to finish */
 static VOID CheckDriverReload(DEVINST Bus)
 {
-    UNICODE_STRING Service = RTL_CONSTANT_STRING(L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Services\\KmtestFilterReq");
     NTSTATUS Loaded = STATUS_UNSUCCESSFUL;
     WCHAR VetoName[MAX_PATH];
     PNP_VETO_TYPE VetoType;
@@ -1216,9 +1215,7 @@ static VOID CheckDriverReload(DEVINST Bus)
             (ULONG)CR_SUCCESS);
     Status = RtlAdjustPrivilege(SE_LOAD_DRIVER_PRIVILEGE, TRUE, FALSE, &Enabled);
     ok_eq_hex(Status, STATUS_SUCCESS);
-    Status = NtUnloadDriver(&Service);
-    ok_eq_hex(Status, STATUS_SUCCESS);
-    ok(WaitValue(L"DriverUnloaded", 1000), "The fixture driver was not unloaded\n");
+    ok(WaitValue(L"DriverUnloaded", 1000), "The fixture driver was not unloaded when its devices were removed\n");
 
     SetRequest(L"HoldEntry", 1);
     Thread = CreateThread(NULL, 0, LoadFixtureDriver, &Loaded, 0, NULL);
@@ -1236,9 +1233,19 @@ static VOID CheckDriverReload(DEVINST Bus)
     ok(ChildStarted(Bus, 1000), "The bus did not start again with its driver loaded again\n");
 }
 
+/* Without PAE an x86 kernel maps 32-bit physical addresses only; the memory windows of three checks are above 4 GB */
+static BOOL HighMemoryReachable(VOID)
+{
+#ifdef _M_IX86
+    return IsProcessorFeaturePresent(PF_PAE_ENABLED);
+#else
+    return TRUE;
+#endif
+}
+
 static VOID RunFixture(HDEVINFO Devices, PSP_DEVINFO_DATA Device, PCWSTR InfPath)
 {
-    BOOL Success, Staged, Reboot = FALSE;
+    BOOL Success, Staged, HighMemory, Reboot = FALSE;
     WCHAR OemInf[MAX_PATH];
     PWSTR OemName = NULL;
 
@@ -1275,10 +1282,15 @@ static VOID RunFixture(HDEVINFO Devices, PSP_DEVINFO_DATA Device, PCWSTR InfPath
         CheckFailedStack(Device->DevInst);
         CheckTargetRemoval(Device->DevInst);
         CheckApplicationRemoval(Device->DevInst);
-        CheckLargeMemory(Device->DevInst);
+        HighMemory = HighMemoryReachable();
+        if (!skip(HighMemory, "No physical address space above 4 GB\n"))
+            CheckLargeMemory(Device->DevInst);
         CheckNoRequirements(Device->DevInst);
-        CheckOccupiedMemory(Device->DevInst);
-        CheckBootSetting(Device->DevInst);
+        if (HighMemory)
+        {
+            CheckOccupiedMemory(Device->DevInst);
+            CheckBootSetting(Device->DevInst);
+        }
         CheckNullChild(Device->DevInst);
         CheckEject(Device->DevInst);
         CheckFailed(Device->DevInst);

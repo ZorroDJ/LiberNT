@@ -1120,6 +1120,18 @@ typedef struct _PP_LOOKASIDE_LIST
 //
 // Architectural Types
 //
+//
+// Entropy Timing State
+//
+typedef struct _KENTROPY_TIMING_STATE
+{
+    ULONG EntropyCount;
+    ULONG Buffer[64];
+    KDPC Dpc;
+    ULONG LastDeliveredBuffer;
+    PULONG RawDataBuffer;
+} KENTROPY_TIMING_STATE, *PKENTROPY_TIMING_STATE;
+
 #include <arch/ketypes.h>
 
 //
@@ -3185,7 +3197,7 @@ typedef struct _KTHREAD
     ULONG ContextSwitches;
     volatile UCHAR State;
 #if (NTDDI_VERSION >= NTDDI_WIN10) // since 10.0.10074.0
-    CHAR Spare12;
+    CHAR DecayBoost; // Windows 10 name: Spare12
 #else
     CHAR NpxState;
 #endif
@@ -3992,18 +4004,6 @@ typedef struct _KSERVICE_TABLE_DESCRIPTOR
 } KSERVICE_TABLE_DESCRIPTOR, *PKSERVICE_TABLE_DESCRIPTOR;
 
 #if (NTDDI_VERSION >= NTDDI_WIN8)
-//
-// Entropy Timing State
-//
-typedef struct _KENTROPY_TIMING_STATE
-{
-    ULONG EntropyCount;
-    ULONG Buffer[64];
-    KDPC Dpc;
-    ULONG LastDeliveredBuffer;
-    PULONG RawDataBuffer;
-} KENTROPY_TIMING_STATE, *PKENTROPY_TIMING_STATE;
-
 //
 // Constants from ks386.inc, ksamd64.inc and ksarm.h
 //

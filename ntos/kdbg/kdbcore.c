@@ -585,6 +585,10 @@ KdbpInsertBreakPoint(
         return STATUS_INVALID_PARAMETER;
     }
 
+    /* An instruction starts at a multiple of the breakpoint's size: an address marked as Thumb code names the one below it */
+    if (Type != KdbBreakPointHardware)
+        Address &= ~(ULONG_PTR)(KD_BREAKPOINT_SIZE - 1);
+
     /* The same address is not watched twice */
     if (KdbpFindBreakPointAt(Address) >= 0)
         return STATUS_OBJECT_NAME_COLLISION;
@@ -759,6 +763,23 @@ KdbpSetBreakPointInternal(
 
     BreakPoint->Internal = TRUE;
     return TRUE;
+}
+
+/* Whether the machine stands on the instruction of the breakpoint that has this number now: the number may have gone to another one since the stop */
+BOOLEAN
+KdbpStandsOnBreakPoint(
+    _In_ LONG BreakPointNr,
+    _In_ PCONTEXT Context)
+{
+    PKDB_BREAKPOINT BreakPoint = KdbpBreakPointFromNr(BreakPointNr);
+
+    if ((BreakPoint == NULL) || !BreakPoint->Enabled)
+        return FALSE;
+
+    if ((BreakPoint->Type == KdbBreakPointHardware) && (BreakPoint->Data.Hw.AccessType != KdbAccessExec))
+        return FALSE;
+
+    return BreakPoint->Address == (ULONG_PTR)KeGetContextPc(Context);
 }
 
 /* A breakpoint on such an address belongs to every process; any other one to the process it was set in */
@@ -1591,14 +1612,9 @@ KdbEnterDebuggerException(
      */
     if ((BreakPointNr >= 0) && (KdbpContinueType == kdContinue))
     {
-        PKDB_BREAKPOINT BreakPoint = KdbpBreakPointFromNr(BreakPointNr);
-
         /* A watch on data fires after the access; one on an instruction would fire again at once */
-        if ((BreakPoint != NULL) && BreakPoint->Enabled &&
-            ((BreakPoint->Type != KdbBreakPointHardware) || (BreakPoint->Data.Hw.AccessType == KdbAccessExec)))
-        {
+        if (KdbpStandsOnBreakPoint(BreakPointNr, Context))
             KdbpBeginStepOver(BreakPointNr, Context);
-        }
     }
     else if ((BreakPointNr < 0) &&
              (KdbpContinueType == kdContinue) &&
