@@ -31,6 +31,7 @@
 #include "vssym32.h"
 #ifdef __REACTOS__
 #include "winnls.h"
+#include <reactos/undocuser.h>
 #include "resource.h"
 #include <reactos/dwmframe.h>
 #include <reactos/colorscheme.h>
@@ -65,6 +66,18 @@ static WCHAR szCurrentColor[64];
 static WCHAR szCurrentSize[64];
 
 struct user_api_hook user_api = {0};
+
+#define UXTHEME_APP_MODE_DEFAULT    0
+#define UXTHEME_APP_MODE_ALLOW_DARK 1
+#define UXTHEME_APP_MODE_FORCE_DARK 2
+#define UXTHEME_APP_MODE_FORCE_LIGHT 3
+#define UXTHEME_APP_MODE_MAX        4
+
+static LONG g_PreferredAppMode = UXTHEME_APP_MODE_DEFAULT;
+
+
+static const WCHAR dark_mode_propW[] = L"ReactOS.UxTheme.DarkMode";
+static const WCHAR immersive_dark_mode_propW[] = L"ReactOS.Dwm.ImmersiveDarkMode";
 
 /***********************************************************************/
 
@@ -748,11 +761,75 @@ void UXTHEME_ClearNonClientLiquidProperties(HWND hwnd)
     UXTHEME_ClearLiquidProperties(hwnd, DWM_BACKDROP_REGION_NONCLIENT);
 }
 
-static BOOL UXTHEME_UseLightClasses(LPCWSTR classList, DWORD flags)
+static BOOL UXTHEME_IsDarkModeName(LPCWSTR name)
+{
+    return name && !_wcsnicmp(name, L"DarkMode_", 9);
+}
+
+static BOOL UXTHEME_ClassListIsDarkMode(LPCWSTR classList)
+{
+    return classList && wcsstr(classList, L"DarkMode") != NULL;
+}
+
+/* wxWidgets asks for Windows-only DarkMode_* app/class names. Strip the
+ * prefix, alias DarkTheme to the theme's Window class and keep the list
+ * otherwise untouched. */
+static BOOL UXTHEME_NormalizeClassList(LPCWSTR src, LPWSTR dst, SIZE_T cch)
+{
+    SIZE_T used = 0;
+
+    while (src && *src)
+    {
+        LPCWSTR end = wcschr(src, ';');
+        SIZE_T len = end ? (SIZE_T)(end - src) : wcslen(src);
+        LPCWSTR token = src;
+        BOOL separator = FALSE;
+
+        if (len >= 10 && !_wcsnicmp(token, L"DarkMode::", 10))
+        {
+            token += 10;
+            len -= 10;
+        }
+        else if (len > 9 && !_wcsnicmp(token, L"DarkMode_", 9))
+        {
+            token += 9;
+            len -= 9;
+        }
+        if (len == 9 && !_wcsnicmp(token, L"DarkTheme", 9))
+            token = L"Window", len = 6;
+
+        if (used + len + 2 > cch)
+            return FALSE;
+        memcpy(dst + used, token, len * sizeof(WCHAR));
+        used += len;
+
+        if (end)
+        {
+            dst[used++] = ';';
+            src = end + 1;
+            separator = TRUE;
+        }
+        else
+            break;
+        if (!separator && !*src)
+            break;
+    }
+    dst[used] = UNICODE_NULL;
+    return TRUE;
+}
+
+static BOOL UXTHEME_UseLightClasses(HWND hwnd, LPCWSTR classList, DWORD flags,
+                                    BOOL darkRequest)
 {
     if ((flags & OTD_NONCLIENT) && !lstrcmpiW(classList, L"WINDOW"))
-        return DwmSettingsReadColorScheme() == DWM_COLOR_SCHEME_LIGHT;
-    return UXTHEME_UsesDefaultSysColors();
+        return !darkRequest && DwmSettingsReadColorScheme() == DWM_COLOR_SCHEME_LIGHT;
+    if (g_PreferredAppMode == UXTHEME_APP_MODE_FORCE_LIGHT)
+        return TRUE;
+    if (g_PreferredAppMode == UXTHEME_APP_MODE_FORCE_DARK)
+        return FALSE;
+    if (darkRequest || IsDarkModeAllowedForWindow(hwnd))
+        return FALSE;
+    return DwmSettingsReadColorScheme() == DWM_COLOR_SCHEME_LIGHT;
 }
 
 static PTHEME_CLASS UXTHEME_OpenShellMaterial(DWORD scheme, UINT dpi)
@@ -891,6 +968,11 @@ static HTHEME open_theme_data(HWND hwnd, LPCWSTR pszClassList, DWORD flags, UINT
     LPCWSTR pszAppName;
     LPCWSTR pszUseClassList;
     HTHEME hTheme = NULL;
+#ifdef __REACTOS__
+    WCHAR szAppStrip[256];
+    WCHAR szClassNorm[256];
+    BOOL darkRequest;
+#endif
     TRACE("(%p,%s, %lx)\n", hwnd, debugstr_w(pszClassList), flags);
 
     if(!pszClassList)
@@ -934,9 +1016,21 @@ static HTHEME open_theme_data(HWND hwnd, LPCWSTR pszClassList, DWORD flags, UINT
             pszUseClassList = pszClassList;
 
 #ifdef __REACTOS__
+        darkRequest = UXTHEME_ClassListIsDarkMode(pszUseClassList) ||
+                      UXTHEME_IsDarkModeName(pszAppName);
+
+        if (UXTHEME_IsDarkModeName(pszAppName))
+        {
+            lstrcpynW(szAppStrip, pszAppName + 9, ARRAY_SIZE(szAppStrip));
+            pszAppName = szAppStrip;
+        }
+        if (UXTHEME_NormalizeClassList(pszUseClassList, szClassNorm,
+                                       ARRAY_SIZE(szClassNorm)))
+            pszUseClassList = szClassNorm;
+
         if (pszUseClassList)
             hTheme = MSSTYLES_OpenThemeClassForApp(pszAppName,
-                                                   UXTHEME_UseLightClasses(pszUseClassList, flags) ?
+                                                   UXTHEME_UseLightClasses(hwnd, pszUseClassList, flags, darkRequest) ?
                                                    L"ContentLight" : NULL,
                                                    pszUseClassList, dpi);
 #else
@@ -1669,13 +1763,32 @@ BOOL WINAPI ThemeHooksRemove(void)
 }
 #endif
 
+static BOOL CALLBACK UXTHEME_NotifyDarkModeEnum(HWND hwnd, LPARAM lParam)
+{
+    DWORD processId = 0;
+
+    GetWindowThreadProcessId(hwnd, &processId);
+    if (processId == GetCurrentProcessId())
+    {
+        PostMessageW(hwnd, WM_SETTINGCHANGE, 0, (LPARAM)L"ImmersiveColorSet");
+        PostMessageW(hwnd, WM_THEMECHANGED, TRUE, 0);
+        InvalidateRect(hwnd, NULL, TRUE);
+    }
+    return TRUE;
+}
+
 /**********************************************************************
  *      RefreshImmersiveColorPolicyState                  (UXTHEME.104)
  *
+ * Re-reads the immersive color policy, discards cached theme data and
+ * notifies the windows of this process so they repaint.
  */
 void WINAPI RefreshImmersiveColorPolicyState(void)
 {
-    FIXME("stub\n");
+#ifdef __REACTOS__
+    UserSetLightColorScheme(DwmSettingsReadColorScheme() == DWM_COLOR_SCHEME_LIGHT);
+    EnumWindows(UXTHEME_NotifyDarkModeEnum, 0);
+#endif
 }
 
 /**********************************************************************
@@ -1705,6 +1818,11 @@ BOOLEAN WINAPI ShouldAppsUseDarkMode(void)
 {
     DWORD light_theme = TRUE, light_theme_size = sizeof(light_theme);
 
+    if (g_PreferredAppMode == UXTHEME_APP_MODE_FORCE_LIGHT)
+        return FALSE;
+    if (g_PreferredAppMode == UXTHEME_APP_MODE_FORCE_DARK)
+        return TRUE;
+
     RegGetValueW(HKEY_CURRENT_USER,
                  L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
                  L"AppsUseLightTheme", RRF_RT_REG_DWORD, NULL, &light_theme, &light_theme_size);
@@ -1718,8 +1836,25 @@ BOOLEAN WINAPI ShouldAppsUseDarkMode(void)
  */
 BOOLEAN WINAPI AllowDarkModeForWindow(HWND hwnd, BOOLEAN allow)
 {
-    FIXME("%p %d: stub\n", hwnd, allow);
-    return FALSE;
+    BOOLEAN previous;
+
+    if (!hwnd)
+        return FALSE;
+
+    previous = GetPropW(hwnd, dark_mode_propW) != NULL ||
+               GetPropW(hwnd, immersive_dark_mode_propW) != NULL;
+    if (allow)
+    {
+        SetPropW(hwnd, dark_mode_propW, (HANDLE)1);
+        SetPropW(hwnd, immersive_dark_mode_propW, (HANDLE)1);
+    }
+    else
+    {
+        RemovePropW(hwnd, dark_mode_propW);
+        RemovePropW(hwnd, immersive_dark_mode_propW);
+    }
+
+    return previous;
 }
 
 /**********************************************************************
@@ -1728,17 +1863,23 @@ BOOLEAN WINAPI AllowDarkModeForWindow(HWND hwnd, BOOLEAN allow)
  */
 int WINAPI SetPreferredAppMode(int app_mode)
 {
-    FIXME("%d: stub\n", app_mode);
-    return 0;
+    if (app_mode < UXTHEME_APP_MODE_DEFAULT || app_mode > UXTHEME_APP_MODE_MAX)
+        app_mode = UXTHEME_APP_MODE_DEFAULT;
+
+    return InterlockedExchange(&g_PreferredAppMode, app_mode);
 }
 
 /**********************************************************************
  *      FlushMenuThemes                                 (UXTHEME.136)
  *
+ * Menus are drawn by user32 from system colors and theme data, so
+ * invalidate them and let the owning windows repaint.
  */
 void WINAPI FlushMenuThemes(void)
 {
-    FIXME("stub\n");
+#ifdef __REACTOS__
+    EnumWindows(UXTHEME_NotifyDarkModeEnum, 0);
+#endif
 }
 
 /**********************************************************************
@@ -1747,8 +1888,22 @@ void WINAPI FlushMenuThemes(void)
  */
 BOOLEAN WINAPI IsDarkModeAllowedForWindow(HWND hwnd)
 {
-    FIXME("%p: stub\n", hwnd);
-    return FALSE;
+    HWND root;
+
+    if (g_PreferredAppMode != UXTHEME_APP_MODE_ALLOW_DARK &&
+        g_PreferredAppMode != UXTHEME_APP_MODE_FORCE_DARK)
+        return FALSE;
+    if (!hwnd)
+        return TRUE;
+
+    if (GetPropW(hwnd, dark_mode_propW) != NULL ||
+        GetPropW(hwnd, immersive_dark_mode_propW) != NULL)
+        return TRUE;
+
+    root = GetAncestor(hwnd, GA_ROOT);
+    return root && root != hwnd &&
+           (GetPropW(root, dark_mode_propW) != NULL ||
+            GetPropW(root, immersive_dark_mode_propW) != NULL);
 }
 
 /**********************************************************************

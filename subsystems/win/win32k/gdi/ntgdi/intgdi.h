@@ -93,6 +93,9 @@ IntSetSysColors(UINT nColors, CONST INT *Elements, CONST COLORREF *Colors, BOOL 
 HGDIOBJ FASTCALL
 IntGetSysColorBrush(INT Object);
 
+VOID FASTCALL
+IntSetSystemColorScheme(BOOL Dark);
+
 DWORD FASTCALL
 IntGetSysColor(INT nIndex);
 

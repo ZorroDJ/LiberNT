@@ -33,6 +33,7 @@ PUSER_HANDLE_ENTRY gHandleEntries = NULL;
 BOOLEAN gfLogonProcess  = FALSE;
 BOOLEAN gfServerProcess = FALSE;
 BOOLEAN gfDefaultSysColors = FALSE;
+BOOLEAN gfDarkSysColors = FALSE;
 BOOLEAN gfOutsideSystemDirectory = FALSE;
 BOOLEAN gfWin32kLockdown = FALSE;
 
@@ -121,12 +122,15 @@ BOOL
 WINAPI
 UserSetLightColorScheme(BOOL Light)
 {
-    BOOLEAN Default = gfOutsideSystemDirectory || Light;
+    BOOLEAN Default = TRUE;
+    BOOLEAN Dark = !Light;
 
-    if (gfServerProcess || Default == gfDefaultSysColors)
+    if (gfServerProcess ||
+        (Default == gfDefaultSysColors && Dark == gfDarkSysColors))
         return FALSE;
-    NtUserCallOneParam(Default, ONEPARAM_ROUTINE_ROS_USEDEFAULTSYSCOLORS);
+    NtUserCallOneParam(Light ? 1 : 2, ONEPARAM_ROUTINE_ROS_USEDEFAULTSYSCOLORS);
     gfDefaultSysColors = Default;
+    gfDarkSysColors = Dark;
     return TRUE;
 }
 

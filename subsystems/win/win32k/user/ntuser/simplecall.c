@@ -443,12 +443,18 @@ NtUserCallOneParam(
         case ONEPARAM_ROUTINE_ROS_USEDEFAULTSYSCOLORS:
         {
             PPROCESSINFO ppi = PsGetCurrentProcessWin32Process();
+            BOOLEAN WasSet = !!(ppi->W32PF_flags & W32PF_DEFAULTSYSCOLORS);
 
-            Result = !!(ppi->W32PF_flags & W32PF_DEFAULTSYSCOLORS);
+            Result = WasSet;
             if (Param)
+            {
                 ppi->W32PF_flags |= W32PF_DEFAULTSYSCOLORS;
+                IntSetSystemColorScheme(Param == 2);
+            }
             else
+            {
                 ppi->W32PF_flags &= ~W32PF_DEFAULTSYSCOLORS;
+            }
             break;
         }
 

@@ -142,6 +142,14 @@ void WINAPI UXTHEME_ScrollBarDraw(HWND hwnd, HDC dc, INT bar, enum SCROLL_HITTES
 LRESULT WINAPI UXTHEME_ScrollbarWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                         BOOL unicode);
 
+/* Undocumented dark mode API. */
+BOOLEAN WINAPI AllowDarkModeForWindow(HWND hwnd, BOOLEAN allow);
+BOOLEAN WINAPI IsDarkModeAllowedForWindow(HWND hwnd);
+BOOLEAN WINAPI ShouldAppsUseDarkMode(void);
+int WINAPI SetPreferredAppMode(int app_mode);
+void WINAPI RefreshImmersiveColorPolicyState(void);
+void WINAPI FlushMenuThemes(void);
+
 /* No alpha blending */
 #define ALPHABLEND_NONE             0
 /* "Cheap" binary alpha blending - but possibly faster */

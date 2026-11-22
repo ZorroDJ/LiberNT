@@ -10,12 +10,12 @@
 #include <reactos/dwmframe.h>
 #include <math.h>
 
+
 #define NC_PREVIEW_MSGBOX_HALF_WIDTH 75
 #define NC_PREVIEW_MSGBOX_OFFSET_X -29
 #define NC_PREVIEW_MSGBOX_OFFSET_Y 71
 
 /* Shared with DwmSetWindowAttribute in dwmapi.dll. */
-static const WCHAR immersive_dark_mode_propW[] = L"ReactOS.Dwm.ImmersiveDarkMode";
 
 #define CAPTION_GLOW_RADIUS 5
 #define CAPTION_GLOW_PASSES 3
@@ -449,7 +449,7 @@ ThemeInitDrawContext(PDRAW_CONTEXT pcontext,
     pcontext->hWnd = hWnd;
     pcontext->Active = IsWindowActive(hWnd, pcontext->wi.dwExStyle);
     pcontext->theme = GetNCCaptionTheme(hWnd, pcontext->wi.dwStyle);
-    pcontext->DarkMode = GetPropW(hWnd, immersive_dark_mode_propW) != NULL &&
+    pcontext->DarkMode = IsDarkModeAllowedForWindow(hWnd) &&
                          ThemeCaptionIsLight(pcontext->theme);
     pcontext->scrolltheme = GetNCScrollbarTheme(hWnd, pcontext->wi.dwStyle);
 

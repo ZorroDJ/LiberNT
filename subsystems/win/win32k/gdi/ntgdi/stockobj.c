@@ -48,7 +48,7 @@ static const COLORREF SysColors[] =
     RGB(236, 233, 216)  /* COLOR_MENUBAR  */
 };
 
-static COLORREF DefaultSysColors[] =
+static const COLORREF LightSystemColors[] =
 {
     RGB(200, 200, 200),
     RGB(0, 0, 0),
@@ -82,6 +82,43 @@ static COLORREF DefaultSysColors[] =
     RGB(0, 120, 215),
     RGB(240, 240, 240)
 };
+
+static const COLORREF DarkSystemColors[] =
+{
+    RGB(43, 43, 43),    /* COLOR_SCROLLBAR  */
+    RGB(16, 16, 16),    /* COLOR_BACKGROUND  */
+    RGB(32, 32, 32),    /* COLOR_ACTIVECAPTION  */
+    RGB(43, 43, 43),    /* COLOR_INACTIVECAPTION  */
+    RGB(32, 32, 32),    /* COLOR_MENU  */
+    RGB(32, 32, 32),    /* COLOR_WINDOW  */
+    RGB(32, 32, 32),    /* COLOR_WINDOWFRAME  */
+    RGB(240, 240, 240), /* COLOR_MENUTEXT  */
+    RGB(240, 240, 240), /* COLOR_WINDOWTEXT  */
+    RGB(255, 255, 255), /* COLOR_CAPTIONTEXT  */
+    RGB(32, 32, 32),    /* COLOR_ACTIVEBORDER  */
+    RGB(43, 43, 43),    /* COLOR_INACTIVEBORDER  */
+    RGB(16, 16, 16),    /* COLOR_APPWORKSPACE  */
+    RGB(0, 120, 215),   /* COLOR_HIGHLIGHT  */
+    RGB(255, 255, 255), /* COLOR_HIGHLIGHTTEXT  */
+    RGB(32, 32, 32),    /* COLOR_BTNFACE  */
+    RGB(24, 24, 24),    /* COLOR_BTNSHADOW  */
+    RGB(128, 128, 128), /* COLOR_GRAYTEXT  */
+    RGB(240, 240, 240), /* COLOR_BTNTEXT  */
+    RGB(160, 160, 160), /* COLOR_INACTIVECAPTIONTEXT  */
+    RGB(40, 40, 40),    /* COLOR_BTNHIGHLIGHT  */
+    RGB(16, 16, 16),    /* COLOR_3DDKSHADOW  */
+    RGB(48, 48, 48),    /* COLOR_3DLIGHT  */
+    RGB(240, 240, 240), /* COLOR_INFOTEXT  */
+    RGB(43, 43, 43),    /* COLOR_INFOBK  */
+    RGB(32, 32, 32),    /* COLOR_UNKNOWN  */
+    RGB(96, 205, 255),  /* COLOR_HOTLIGHT  */
+    RGB(32, 32, 32),    /* COLOR_GRADIENTACTIVECAPTION  */
+    RGB(43, 43, 43),    /* COLOR_GRADIENTINACTIVECAPTION  */
+    RGB(0, 120, 215),   /* COLOR_MENUHILIGHT  */
+    RGB(32, 32, 32)     /* COLOR_MENUBAR  */
+};
+
+static COLORREF DefaultSysColors[NUM_SYSCOLORS];
 
 static HBRUSH DefaultSysColorBrushes[NUM_SYSCOLORS];
 
@@ -391,6 +428,20 @@ IntGetSysColorBrush(INT Object)
     return gpsi->ahbrSystem[Object];
 }
 
+VOID FASTCALL
+IntSetSystemColorScheme(BOOL Dark)
+{
+    const COLORREF *Colors = Dark ? DarkSystemColors : LightSystemColors;
+    UINT i;
+
+    for (i = 0; i < NUM_SYSCOLORS; i++)
+    {
+        DefaultSysColors[i] = Colors[i];
+        if (DefaultSysColorBrushes[i])
+            IntGdiSetSolidBrushColor(DefaultSysColorBrushes[i], Colors[i]);
+    }
+}
+
 DWORD FASTCALL
 IntGetSysColor(INT nIndex)
 {
@@ -407,6 +458,7 @@ CreateSysColorObjects(VOID)
     for (i = 0; i < NUM_SYSCOLORS; i++)
     {
         gpsi->argbSystem[i] = SysColors[i];
+        DefaultSysColors[i] = LightSystemColors[i];
     }
 
     /* Create the syscolor brushes */
