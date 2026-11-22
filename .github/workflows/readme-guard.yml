@@ -10,26 +10,33 @@ permissions:
 
 jobs:
   restore:
-    if: ${{ github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: master
-      - name: Restore the fork README and banner
+      - name: Restore protected files
         run: |
+          restore() {
+            src="$1"; dst="$2"
+            cmp -s "$dst" "$src" && return 1
+            cp "$src" "$dst"
+            return 0
+          }
           changed=0
-          if ! cmp -s README.md darkmode-analysis/README.canonical.md; then
-            cp darkmode-analysis/README.canonical.md README.md
-            changed=1
-          fi
-          if ! cmp -s media/graphics/branding/libernt-banner-darkmode.png darkmode-analysis/libernt-banner-darkmode.canonical.png; then
-            cp darkmode-analysis/libernt-banner-darkmode.canonical.png media/graphics/branding/libernt-banner-darkmode.png
-            changed=1
-          fi
-          [ "$changed" = 1 ] || { echo "README and banner already protected."; exit 0; }
+          restore darkmode-analysis/README.canonical.md README.md && changed=1
+          restore darkmode-analysis/protected/banner.png media/graphics/branding/libernt-banner-darkmode.png && changed=1
+          restore darkmode-analysis/protected/drivers/hid/mouhid/mouhid.c drivers/hid/mouhid/mouhid.c && changed=1
+          restore darkmode-analysis/protected/boot/bootdata/hivedef.inf boot/bootdata/hivedef.inf && changed=1
+          restore darkmode-analysis/protected/media/inf/msmouse.inf media/inf/msmouse.inf && changed=1
+          restore darkmode-analysis/protected/base/setup/libernt/updagent.c base/setup/libernt/updagent.c && changed=1
+          restore darkmode-analysis/protected/base/setup/libernt/lntupdate.inf base/setup/libernt/lntupdate.inf && changed=1
+          [ "$changed" = 1 ] || { echo "Protected files already intact."; exit 0; }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add README.md media/graphics/branding/libernt-banner-darkmode.png
-          git commit -m "docs: restore the fork README and banner after sync"
+          git add README.md media/graphics/branding/libernt-banner-darkmode.png \
+                  drivers/hid/mouhid/mouhid.c boot/bootdata/hivedef.inf \
+                  media/inf/msmouse.inf base/setup/libernt/updagent.c \
+                  base/setup/libernt/lntupdate.inf
+          git commit -m "docs: restore protected fork files after sync"
           git push

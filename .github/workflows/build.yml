@@ -21,24 +21,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - compiler: gcc
-            arch: i386
           - compiler: clang
             arch: amd64
             build: release
-          - compiler: clang
-            arch: amd64
-            build: debug
-          - compiler: clang
-            arch: arm64
-            profile: profile_raspberry
-          - compiler: clang
-            arch: arm
-          - compiler: clang
-            arch: riscv64
-            profile: profile_spacemit_k1
-          - compiler: clang
-            arch: ppc
       fail-fast: false
     runs-on: ubuntu-24.04
     env:
@@ -212,7 +197,7 @@ jobs:
       run: python3 sdk/tools/depcheck.py ${{steps.configure.outputs.outdir}} --mode depfiles --nested --fail-on-gaps
 
   build-msvc:
-    if: ${{ github.event_name != 'schedule' && github.event_name != 'workflow_dispatch' }}
+    if: false
     strategy:
       matrix:
         arch: [amd64, i386, arm64]

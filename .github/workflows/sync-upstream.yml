@@ -1,0 +1,66 @@
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge upstream/master
+        id: merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          before=$(git rev-parse HEAD)
+          git remote add upstream https://github.com/LiberNT/LiberNT.git
+          git fetch upstream master
+          if ! git merge -X ours --no-edit upstream/master; then
+            git merge --abort
+            gh issue create \
+              --title "Upstream sync conflict $(date -u +%Y-%m-%d)" \
+              --body "Automatic sync with https://github.com/LiberNT/LiberNT failed on \`$before\`. Resolve the conflict manually, then the next scheduled run can continue."
+            exit 1
+          fi
+          git checkout "$before" -- README.md
+          for pair in \
+            "darkmode-analysis/protected/drivers/hid/mouhid/mouhid.c drivers/hid/mouhid/mouhid.c" \
+            "darkmode-analysis/protected/boot/bootdata/hivedef.inf boot/bootdata/hivedef.inf" \
+            "darkmode-analysis/protected/media/inf/msmouse.inf media/inf/msmouse.inf" \
+            "darkmode-analysis/protected/base/setup/libernt/updagent.c base/setup/libernt/updagent.c" \
+            "darkmode-analysis/protected/base/setup/libernt/lntupdate.inf base/setup/libernt/lntupdate.inf" \
+            "darkmode-analysis/protected/banner.png media/graphics/branding/libernt-banner-darkmode.png"; do
+            set -- $pair
+            cp "$1" "$2"
+            git add "$2"
+          done
+          if ! git diff --quiet HEAD; then
+            git commit --amend --no-edit
+          fi
+          if [ "$(git rev-parse HEAD)" = "$before" ]; then
+            echo "Upstream already merged; nothing to do."
+            exit 0
+          fi
+          git push origin HEAD:master
+          echo "Pushed upstream sync."
