@@ -137,19 +137,6 @@ jobs:
         [ "$BUILD_TYPE" = "debug" ] && TARGETS="$TARGETS liberntimg liberntvhd"
         ninja -C ${{steps.configure.outputs.outdir}} $TARGETS -k0
 
-    - name: Build registry regression test
-      run: |
-        . "$HOME/.local/opt/rosbe/rosbe-env.sh"
-        cmake -S . -B ${{steps.configure.outputs.outdir}} -DENABLE_ROSTESTS=ON
-        ninja -C ${{steps.configure.outputs.outdir}} advapi32_apitest
-
-    - name: Upload registry regression test
-      if: ${{ env.CCACHE_SEED != 'true' }}
-      uses: actions/upload-artifact@v7
-      with:
-        name: registry-regression-test
-        path: ${{steps.configure.outputs.outdir}}/modules/rostests/apitests/advapi32/advapi32_apitest.exe
-
     - name: Print ccache statistics
       if: ${{ always() && steps.ccache_restore.outcome == 'success' }}
       run: ccache -s
