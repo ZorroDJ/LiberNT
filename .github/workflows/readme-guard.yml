@@ -1,0 +1,30 @@
+name: README guard
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+      - name: Restore the fork README
+        run: |
+          if cmp -s README.md darkmode-analysis/README.canonical.md; then
+            echo "README already protected."
+            exit 0
+          fi
+          cp darkmode-analysis/README.canonical.md README.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "docs: restore the fork README after sync"
+          git push
