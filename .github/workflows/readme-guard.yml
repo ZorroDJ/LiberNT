@@ -16,15 +16,20 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: master
-      - name: Restore the fork README
+      - name: Restore the fork README and banner
         run: |
-          if cmp -s README.md darkmode-analysis/README.canonical.md; then
-            echo "README already protected."
-            exit 0
+          changed=0
+          if ! cmp -s README.md darkmode-analysis/README.canonical.md; then
+            cp darkmode-analysis/README.canonical.md README.md
+            changed=1
           fi
-          cp darkmode-analysis/README.canonical.md README.md
+          if ! cmp -s media/graphics/branding/libernt-banner.png darkmode-analysis/libernt-banner.canonical.png; then
+            cp darkmode-analysis/libernt-banner.canonical.png media/graphics/branding/libernt-banner.png
+            changed=1
+          fi
+          [ "$changed" = 1 ] || { echo "README and banner already protected."; exit 0; }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add README.md
-          git commit -m "docs: restore the fork README after sync"
+          git add README.md media/graphics/branding/libernt-banner.png
+          git commit -m "docs: restore the fork README and banner after sync"
           git push
