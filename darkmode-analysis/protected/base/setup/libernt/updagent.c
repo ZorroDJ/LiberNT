@@ -159,7 +159,7 @@ ReadSettingTime(
     return Value;
 }
 
-static VOID
+static DWORD
 WriteSetting(
     _In_ PCWSTR Name,
     _In_ DWORD Type,
@@ -167,12 +167,15 @@ WriteSetting(
     _In_ DWORD Size)
 {
     HKEY hKey;
+    LONG Error;
 
-    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, UPDATE_KEY, 0, NULL, 0, KEY_SET_VALUE, NULL, &hKey, NULL) == ERROR_SUCCESS)
+    Error = RegCreateKeyExW(HKEY_LOCAL_MACHINE, UPDATE_KEY, 0, NULL, 0, KEY_SET_VALUE, NULL, &hKey, NULL);
+    if (Error == ERROR_SUCCESS)
     {
-        RegSetValueExW(hKey, Name, 0, Type, Data, Size);
+        Error = RegSetValueExW(hKey, Name, 0, Type, Data, Size);
         RegCloseKey(hKey);
     }
+    return Error;
 }
 
 static ULONGLONG
@@ -744,6 +747,7 @@ CheckForUpdate(
     Info->Notes = JsonString(Json, "notes", UPDATE_NOTES_MAX);
     Info->Available = JsonBoolean(Json, "available") && Info->TagId != 0 && Info->Url[0] &&
                       Info->Size != 0 && IsSha256(Info->Sha256) &&
+                      Info->TagId != ReadSetting(L"InstalledTag", 0) &&
                       (LocalBuild == 0 || Info->Build > LocalBuild);
     if (JsonBoolean(Json, "available") && !Info->Available && (!IsSha256(Info->Sha256) || Info->Size == 0))
         DPRINT1("The update server offered tag %lu without a size or SHA-256; it is not offered\n", Info->TagId);
@@ -1738,6 +1742,19 @@ RefreshBootManager(
 }
 
 static DWORD
+RememberInstalledUpdate(VOID)
+{
+    WCHAR Request[MAX_PATH];
+    ULONG TagId;
+
+    StagePath(UPDATE_STAGE_REQUEST, Request);
+    TagId = GetPrivateProfileIntW(UPDATE_STAGE_SECTION, L"TagId", 0, Request);
+    if (TagId == 0)
+        return ERROR_INVALID_DATA;
+    return WriteSetting(L"InstalledTag", REG_DWORD, &TagId, sizeof(TagId));
+}
+
+static DWORD
 CompleteUpdate(
     _In_opt_ HWND hwndNotify)
 {
@@ -1774,7 +1791,9 @@ CompleteUpdate(
     if (Error == ERROR_SUCCESS)
     {
         RefreshBootManager(Image);
-        Error = WriteStagedValue(L"Completed", L"1");
+        Error = RememberInstalledUpdate();
+        if (Error == ERROR_SUCCESS)
+            Error = WriteStagedValue(L"Completed", L"1");
     }
     if (hSetup != INVALID_HANDLE_VALUE)
         SetupCloseInfFile(hSetup);
@@ -1956,7 +1975,10 @@ RunComplete(VOID)
     if (ImageHash[0] == UNICODE_NULL)
         return RemoveStage() == ERROR_SUCCESS ? ERROR_NOT_FOUND : ERROR_RETRY;
     if (GetPrivateProfileIntW(UPDATE_STAGE_SECTION, L"Completed", 0, Path) != 0)
-        return RemoveStage();
+    {
+        DWORD Error = RememberInstalledUpdate();
+        return Error == ERROR_SUCCESS ? RemoveStage() : Error;
+    }
 
     StagePath(STAGE_STATUS, Path);
     GetPrivateProfileStringW(STAGE_STATUS_SECTION, L"Stage", L"", Stage, ARRAYSIZE(Stage), Path);

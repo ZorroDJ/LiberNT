@@ -619,7 +619,6 @@ BOOLEAN ReadIpConfiguration(PIP_INTERFACE Interface)
     UNICODE_STRING Gateway = RTL_CONSTANT_STRING(L"DefaultGateway");
     UNICODE_STRING EnableDhcp = RTL_CONSTANT_STRING(L"EnableDHCP");
     UNICODE_STRING InterfaceMetric = RTL_CONSTANT_STRING(L"InterfaceMetric");
-    UNICODE_STRING Mtu = RTL_CONSTANT_STRING(L"MTU");
     UNICODE_STRING Prefix = RTL_CONSTANT_STRING(L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\");
     UNICODE_STRING TcpipRegistryPath;
     ULONG Unused;
@@ -672,21 +671,6 @@ BOOLEAN ReadIpConfiguration(PIP_INTERFACE Interface)
         {
             Interface->ManualMetric = TRUE;
             Interface->InterfaceMetric = min(*(PULONG)KeyValueInfo->Data, 9999);
-        }
-
-        /* Read the configured interface MTU, bounded by the link MTU. */
-        Status = ZwQueryValueKey(ParameterHandle,
-                                 &Mtu,
-                                 KeyValuePartialInformation,
-                                 KeyValueInfo,
-                                 KeyValueInfoLength,
-                                 &Unused);
-        if (NT_SUCCESS(Status) && KeyValueInfo->DataLength == sizeof(ULONG))
-        {
-            ULONG ConfiguredMtu = *(PULONG)KeyValueInfo->Data;
-
-            if (ConfiguredMtu >= 576)
-                Interface->MTU = min(ConfiguredMtu, Interface->LinkMTU);
         }
 
         /* Read the EnableDHCP entry */

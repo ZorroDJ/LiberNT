@@ -136,6 +136,7 @@ CmpCheckCreateAccess(
     _In_ PCM_KEY_CONTROL_BLOCK ParentKcb,
     _In_ PACCESS_STATE AccessState,
     _In_ KPROCESSOR_MODE AccessMode,
+    _In_ ULONG CreateOptions,
     _In_ BOOLEAN CreateLink)
 {
     PSECURITY_DESCRIPTOR Descriptor = NULL;
@@ -146,6 +147,11 @@ CmpCheckCreateAccess(
     BOOLEAN Allowed;
 
     if (AccessMode == KernelMode) return STATUS_SUCCESS;
+    if ((CreateOptions & REG_OPTION_BACKUP_RESTORE) &&
+        SeSinglePrivilegeCheck(SeRestorePrivilege, AccessMode))
+    {
+        return STATUS_SUCCESS;
+    }
 
     if (CreateLink) Wanted |= KEY_CREATE_LINK;
 
@@ -429,9 +435,10 @@ CmpDoCreate(
     if (StorageType == Volatile) Flags |= KEY_IS_VOLATILE;
 
     Status = CmpCheckCreateAccess(ParentKcb,
-                                  AccessState,
-                                  AccessMode,
-                                  (Flags & KEY_SYM_LINK) != 0);
+                                   AccessState,
+                                   AccessMode,
+                                   Context->CreateOptions,
+                                   (Flags & KEY_SYM_LINK) != 0);
     if (!NT_SUCCESS(Status)) return Status;
 
     ParentNode = (PCM_KEY_NODE)HvGetCell(Hive, Cell);

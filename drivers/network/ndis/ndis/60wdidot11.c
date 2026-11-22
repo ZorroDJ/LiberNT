@@ -628,14 +628,6 @@ Ndis6WdiDot11ParseCapabilities(
     return NDIS_STATUS_SUCCESS;
 }
 
-static ULONG Ndis6WdiDot11Mtu(_In_ PNDIS6_WDI_ADAPTER Wdi)
-{
-    /* WDI reports the 802.11 MSDU budget, which includes the RFC1042 SNAP
-     * header (8 bytes). IP needs the Ethernet payload MTU, capped at 1500. */
-    ULONG Mtu = Wdi->Mtu ? Wdi->Mtu : 1500;
-    return min(Mtu, 1500);
-}
-
 NDIS_STATUS
 Ndis6WdiDot11SetGeneralAttributes(
     _In_ PNDIS6_WDI_ADAPTER Wdi)
@@ -648,7 +640,7 @@ Ndis6WdiDot11SetGeneralAttributes(
     General.Header.Size = sizeof(General);
     General.MediaType = NdisMediumNative802_11;
     General.PhysicalMediumType = NdisPhysicalMediumNative802_11;
-    General.MtuSize = Ndis6WdiDot11Mtu(Wdi);
+    General.MtuSize = Wdi->Mtu;
     General.MaxXmitLinkSpeed = (ULONG64)Wdi->MaxTxRateKbps * 1000;
     General.MaxRcvLinkSpeed = (ULONG64)Wdi->MaxRxRateKbps * 1000;
     General.XmitLinkSpeed = NDIS_LINK_SPEED_UNKNOWN;
@@ -833,7 +825,7 @@ Ndis6WdiQuery(
         case OID_GEN_PHYSICAL_MEDIUM:
             return Ndis6WdiQueryUlong(Request, NdisPhysicalMediumNative802_11);
         case OID_GEN_MAXIMUM_FRAME_SIZE:
-            return Ndis6WdiQueryUlong(Request, Ndis6WdiDot11Mtu(Wdi));
+            return Ndis6WdiQueryUlong(Request, Wdi->Mtu);
         case OID_GEN_MAXIMUM_TOTAL_SIZE:
         case OID_GEN_TRANSMIT_BLOCK_SIZE:
         case OID_GEN_RECEIVE_BLOCK_SIZE:

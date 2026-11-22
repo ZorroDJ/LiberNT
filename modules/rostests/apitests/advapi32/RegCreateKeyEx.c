@@ -19,6 +19,130 @@
 #include <windef.h>
 #include <aclapi.h>
 
+static void TestRestoreCreate(void)
+{
+    static const WCHAR Path[] = L"Software\\LiberNT_RegCreateRestore";
+    HANDLE Token = NULL, Duplicate = NULL, Existing;
+    HKEY Parent = NULL, Child = NULL, Query;
+    SECURITY_DESCRIPTOR Denied, Allowed;
+    SECURITY_ATTRIBUTES Attributes;
+    ACL EmptyAcl;
+    TOKEN_PRIVILEGES Privilege;
+    DWORD Disposition, Value = 0x12345678, ReadValue, Size, Type;
+    LONG Error;
+    BOOL Impersonating = FALSE;
+
+    if (OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &Existing))
+    {
+        CloseHandle(Existing);
+        skip("Restore-create test requires a non-impersonating caller\n");
+        return;
+    }
+    if (GetLastError() != ERROR_NO_TOKEN ||
+        !OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE, &Token))
+    {
+        skip("Cannot obtain the process token: %lu\n", GetLastError());
+        return;
+    }
+    if (!DuplicateTokenEx(Token, TOKEN_QUERY | TOKEN_IMPERSONATE | TOKEN_ADJUST_PRIVILEGES,
+                          NULL, SecurityImpersonation, TokenImpersonation, &Duplicate))
+        goto Cleanup;
+
+    Privilege.PrivilegeCount = 1;
+    if (!LookupPrivilegeValue(NULL, SE_RESTORE_NAME, &Privilege.Privileges[0].Luid))
+        goto Cleanup;
+    Privilege.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    SetLastError(ERROR_SUCCESS);
+    if (!AdjustTokenPrivileges(Duplicate, FALSE, &Privilege, 0, NULL, NULL) ||
+        GetLastError() != ERROR_SUCCESS)
+    {
+        skip("SeRestorePrivilege is unavailable; run elevated\n");
+        goto Cleanup;
+    }
+
+    Error = RegCreateKeyExW(HKEY_CURRENT_USER, Path, 0, NULL, 0, KEY_ALL_ACCESS,
+                            NULL, &Parent, &Disposition);
+    ok_dec(Error, ERROR_SUCCESS);
+    if (Error != ERROR_SUCCESS)
+        goto Cleanup;
+    if (Disposition != REG_CREATED_NEW_KEY)
+    {
+        skip("Restore-create test key already exists\n");
+        RegCloseKey(Parent);
+        Parent = NULL;
+        goto Cleanup;
+    }
+    if (!InitializeAcl(&EmptyAcl, sizeof(EmptyAcl), ACL_REVISION) ||
+        !InitializeSecurityDescriptor(&Denied, SECURITY_DESCRIPTOR_REVISION) ||
+        !SetSecurityDescriptorDacl(&Denied, TRUE, &EmptyAcl, FALSE) ||
+        !InitializeSecurityDescriptor(&Allowed, SECURITY_DESCRIPTOR_REVISION) ||
+        !SetSecurityDescriptorDacl(&Allowed, TRUE, NULL, FALSE))
+        goto Cleanup;
+
+    Error = RegSetKeySecurity(Parent, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, &Denied);
+    ok_dec(Error, ERROR_SUCCESS);
+    if (Error != ERROR_SUCCESS)
+        goto Cleanup;
+    Attributes.nLength = sizeof(Attributes);
+    Attributes.lpSecurityDescriptor = &Allowed;
+    Attributes.bInheritHandle = FALSE;
+    if (!SetThreadToken(NULL, Duplicate))
+        goto Cleanup;
+    Impersonating = TRUE;
+
+    Error = RegCreateKeyExW(Parent, L"Child", 0, NULL, 0, KEY_ALL_ACCESS,
+                            &Attributes, &Child, NULL);
+    ok_dec(Error, ERROR_ACCESS_DENIED);
+    if (Error == ERROR_SUCCESS)
+    {
+        RegCloseKey(Child);
+        Child = NULL;
+        RegDeleteKeyW(Parent, L"Child");
+    }
+    Error = RegCreateKeyExW(Parent, L"Child", 0, NULL, REG_OPTION_BACKUP_RESTORE,
+                            KEY_ALL_ACCESS, &Attributes, &Child, &Disposition);
+    ok_dec(Error, ERROR_SUCCESS);
+    if (Error == ERROR_SUCCESS)
+    {
+        ok_dec(Disposition, REG_CREATED_NEW_KEY);
+        Error = RegSetValueExW(Child, L"Value", 0, REG_DWORD, (BYTE *)&Value, sizeof(Value));
+        ok_dec(Error, ERROR_SUCCESS);
+        Error = RegOpenKeyExW(Child, L"", 0, KEY_QUERY_VALUE, &Query);
+        ok_dec(Error, ERROR_SUCCESS);
+        if (Error == ERROR_SUCCESS)
+        {
+            Size = sizeof(ReadValue);
+            Error = RegQueryValueExW(Query, L"Value", NULL, &Type, (BYTE *)&ReadValue, &Size);
+            ok_dec(Error, ERROR_SUCCESS);
+            if (Error == ERROR_SUCCESS)
+            {
+                ok_dec(Type, REG_DWORD);
+                ok_dec(Size, sizeof(Value));
+                ok_hex(ReadValue, Value);
+            }
+            RegCloseKey(Query);
+        }
+    }
+
+Cleanup:
+    if (Impersonating)
+        ok(RevertToSelf(), "Cannot restore the thread token: %lu\n", GetLastError());
+    if (Child)
+        RegCloseKey(Child);
+    if (Parent)
+    {
+        if (InitializeSecurityDescriptor(&Allowed, SECURITY_DESCRIPTOR_REVISION) &&
+            SetSecurityDescriptorDacl(&Allowed, TRUE, NULL, FALSE))
+            ok_dec(RegSetKeySecurity(Parent, DACL_SECURITY_INFORMATION, &Allowed), ERROR_SUCCESS);
+        RegDeleteKeyW(Parent, L"Child");
+        RegCloseKey(Parent);
+        ok_dec(RegDeleteKeyW(HKEY_CURRENT_USER, Path), ERROR_SUCCESS);
+    }
+    if (Duplicate)
+        CloseHandle(Duplicate);
+    if (Token)
+        CloseHandle(Token);
+}
 
 START_TEST(RegCreateKeyEx)
 {
@@ -35,6 +159,8 @@ START_TEST(RegCreateKeyEx)
     BOOL bRes;
     LONG ErrorCode = 0;
     HKEY hkSub = NULL;
+
+    TestRestoreCreate();
 
     // If any of the test keys already exist, delete them to ensure proper testing
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"mykey", 0, KEY_ALL_ACCESS, &hkey_main) == ERROR_SUCCESS)
@@ -227,4 +353,3 @@ Cleanup:
     ErrorCode = RegDeleteKeyW(HKEY_CURRENT_USER, L"mykey2");
     ok_dec(ErrorCode, ERROR_SUCCESS);
 }
-
