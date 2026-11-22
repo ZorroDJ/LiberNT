@@ -639,10 +639,22 @@ NwifiTranslateRxFrame(
 
     Payload = In + HeaderLength + RFC1042_SNAP_HEADER_LEN;
     PayloadLength = InLength - HeaderLength - RFC1042_SNAP_HEADER_LEN;
-    /* TAL hands frames with a two-byte tail beyond the MSDU (FCS/pad). */
+    /* Trust the network-layer length over any TAL tail/padding. */
+    if (PayloadLength >= 20 && Snap->EtherType[0] == 0x08 && Snap->EtherType[1] == 0x00)
+    {
+        ULONG IpLength = ((ULONG)Payload[2] << 8) | Payload[3];
+        if (IpLength >= 20 && IpLength <= PayloadLength)
+            PayloadLength = min(IpLength, ETH_MTU);
+    }
+    else if (PayloadLength >= 48 && Snap->EtherType[0] == 0x86 && Snap->EtherType[1] == 0xDD)
+    {
+        ULONG IpLength = (((ULONG)Payload[4] << 8) | Payload[5]) + 40;
+        if (IpLength >= 48 && IpLength <= PayloadLength)
+            PayloadLength = min(IpLength, ETH_MTU);
+    }
     if (PayloadLength > ETH_MTU)
     {
-        if (PayloadLength > ETH_MTU + 2)
+        if (PayloadLength > ETH_MTU + 4)
             return NULL;
         PayloadLength = ETH_MTU;
     }
