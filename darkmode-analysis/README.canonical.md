@@ -14,7 +14,7 @@ The result is going from this to this:
 
 **Before**
 
-![RUFUS with broken dark mode rendering](media/graphics/darkmode/rufus-libernt-bug-darkmode.png)
+![RUFUS with broken dark mode rendering](media/graphics/darkmode/rufus-libernt-bug-darkmode.png?v=7affe4da8d4e)
 
 **After**
 
