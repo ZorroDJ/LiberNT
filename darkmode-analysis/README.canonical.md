@@ -47,4 +47,4 @@ the whole ZUFUS window render dark; no assertions were logged on COM1.
 
 ## ISO builds synced with original LiberNT
 
-Here you can find updated AMD64 ISO builds with proper DarkMode and everything else from LiberNT stock synced: https://github.com/ZorroDJ/LiberNT/releases/latest
+Here you can find updated AMD64 ISO builds with proper DarkMode and everything else from LiberNT stock synced: https://github.com/ZorroDJ/LiberNT/releases
