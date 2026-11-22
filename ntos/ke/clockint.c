@@ -293,8 +293,12 @@ KiCountClockKeepAlive(
     _In_ ULONG Ticks)
 {
     ULONG Timeout = (ULONG)(KI_CLOCK_WATCHDOG_INTERVAL / KeMaximumIncrement);
+    ULONG Missed;
 
-    if ((ULONG)InterlockedExchangeAdd(&TargetPrcb->ClockKeepAlive, (LONG)Ticks) + Ticks > Timeout)
+    ASSERT(Ticks == 1);
+    Missed = (ULONG)InterlockedExchangeAdd(&TargetPrcb->ClockKeepAlive, (LONG)Ticks);
+    ASSERT(Missed <= Timeout);
+    if (Missed + Ticks > Timeout)
     {
         KeBugCheckEx(CLOCK_WATCHDOG_TIMEOUT,
                      Timeout,
@@ -331,6 +335,7 @@ KiCheckClockWatchdog(
         return;
     }
 
+    /* One period per interrupt: ticks beyond that are time the clock itself did not tick (held off, or the virtual machine was stopped) */
     if (Prcb == OwnerPrcb)
     {
         for (Number = 0; Number < KeProcessorCount; Number++)
@@ -341,7 +346,7 @@ KiCheckClockWatchdog(
                 KiIsProcessorInSet(KeActiveProcessors.Bitmap, Number) &&
                 !KiClockTickSuspended(TargetPrcb))
             {
-                KiCountClockKeepAlive(TargetPrcb, Ticks);
+                KiCountClockKeepAlive(TargetPrcb, 1);
             }
         }
 
@@ -359,7 +364,7 @@ KiCheckClockWatchdog(
     }
 
     if (Number == Prcb->Number)
-        KiCountClockKeepAlive(OwnerPrcb, Ticks);
+        KiCountClockKeepAlive(OwnerPrcb, 1);
 }
 
 /* PUBLIC FUNCTIONS: THE CLOCK PERIOD *****************************************/
@@ -761,7 +766,7 @@ static LONGLONG KiClockCatchUpOwed;
  * A clock interrupt that came due while the previous one was still pending
  * was merged into it. The clock owner measures the time since its last update
  * on the performance counter, leaves out what the debugger held the machine
- * for, and adds the whole periods that were missed.
+ * for, and answers that time in place of the period the interrupt stands for.
  */
 static
 ULONG
@@ -769,8 +774,8 @@ KiClockCatchUp(
     _In_ ULONG Increment)
 {
     LARGE_INTEGER Frequency;
-    ULONGLONG Now, Ticks, Elapsed, Periods;
-    LONGLONG Stopped, Debugger;
+    ULONGLONG Now, Ticks, Elapsed;
+    LONGLONG Stopped, Debugger, Measured;
 
     ASSERT(KeGetCurrentIrql() >= CLOCK_LEVEL);
     ASSERT(KeGetCurrentPrcb() == KiClockOwnerPrcb);
@@ -785,7 +790,7 @@ KiClockCatchUp(
     {
         KiClockCatchUpCounter = Now;
         KiClockCatchUpOwed = 0;
-        return 0;
+        return Increment;
     }
 
     Ticks = Now - KiClockCatchUpCounter;
@@ -795,21 +800,12 @@ KiClockCatchUp(
 
     Elapsed = (Ticks / (ULONGLONG)Frequency.QuadPart) * 10000000ULL +
               (Ticks % (ULONGLONG)Frequency.QuadPart) * 10000000ULL / (ULONGLONG)Frequency.QuadPart;
-    KiClockCatchUpOwed += (LONGLONG)Elapsed - (LONGLONG)Increment;
-    if (KiClockCatchUpOwed < (LONGLONG)Increment)
-    {
-        if (KiClockCatchUpOwed < -(LONGLONG)Increment)
-            KiClockCatchUpOwed = -(LONGLONG)Increment;
-        return 0;
-    }
+    /* Less than a period too: the tick that comes on time after a late one covers only what was left of its period */
+    Measured = min(max(KiClockCatchUpOwed + (LONGLONG)Elapsed, 1), (LONGLONG)MAXULONG);
+    KiClockCatchUpOwed += (LONGLONG)Elapsed - Measured;
 
-    Periods = (ULONGLONG)KiClockCatchUpOwed / Increment;
-    Periods = min(Periods, (ULONGLONG)((MAXULONG - Increment) / Increment));
-    KiClockCatchUpOwed -= (LONGLONG)(Periods * Increment);
-
-    ASSERT(KiClockCatchUpOwed >= 0);
-    ASSERT(Periods * Increment <= MAXULONG - Increment);
-    return (ULONG)(Periods * Increment);
+    ASSERT((Measured >= 1) && (Measured <= MAXULONG));
+    return (ULONG)Measured;
 }
 
 VOID
@@ -837,7 +833,7 @@ KeUpdateSystemTime(
 
     ClockOwner = (Prcb == KiClockOwnerPrcb);
     if (ClockOwner)
-        Increment += KiClockCatchUp(Increment);
+        Increment = KiClockCatchUp(Increment);
 
     InterruptTime = KiUpdateSharedTime(Increment, ClockOwner);
 

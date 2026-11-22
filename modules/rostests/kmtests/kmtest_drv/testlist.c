@@ -14,6 +14,7 @@ KMT_TESTFUNC Test_DxgkChildConnectionRecord;
 KMT_TESTFUNC Test_DxgkChildDescriptor;
 KMT_TESTFUNC Test_DxgkDisplayDetectControl;
 KMT_TESTFUNC Test_DxgkPostDisplayHandoff;
+KMT_TESTFUNC Test_DxgkStopScreen;
 KMT_TESTFUNC Test_DxgkPresentUserSource;
 KMT_TESTFUNC Test_MonitorBrightnessKey;
 KMT_TESTFUNC Test_DxgkGpuVaAddress;
@@ -318,6 +319,7 @@ KMT_TESTFUNC Test_KeExpandKernelStack;
 KMT_TESTFUNC Test_KeFloatPointState;
 KMT_TESTFUNC Test_KeGuardedMutex;
 KMT_TESTFUNC Test_CmBootFlush;
+KMT_TESTFUNC Test_CmSaveKeyFlush;
 KMT_TESTFUNC Test_CmCallbacks;
 KMT_TESTFUNC Test_CmTransactions;
 KMT_TESTFUNC Test_CmKeyKM;
@@ -506,6 +508,7 @@ const KMT_TEST TestList[] =
     { "DxgkChildDescriptor",               Test_DxgkChildDescriptor },
     { "DxgkDisplayDetectControl",          Test_DxgkDisplayDetectControl },
     { "DxgkPostDisplayHandoff",            Test_DxgkPostDisplayHandoff },
+    { "DxgkStopScreen",                    Test_DxgkStopScreen },
     { "DxgkPresentUserSource",             Test_DxgkPresentUserSource },
     { "DxgkGpuVaAddress",                   Test_DxgkGpuVaAddress },
     { "DxgkGpuVaPageTable",                 Test_DxgkGpuVaPageTable },
@@ -681,6 +684,7 @@ const KMT_TEST TestList[] =
     { "CmCallbacks",                        Test_CmCallbacks },
     { "CmTransactions",                     Test_CmTransactions },
     { "CmKeyKM",                            Test_CmKeyKM },
+    { "CmSaveKeyFlush",                     Test_CmSaveKeyFlush },
     { "EtwRegisterKM",                      Test_EtwRegisterKM },
     { "EtwSessionKM",                       Test_EtwSessionKM },
     { "EtwSessionIrqlKM",                   Test_EtwSessionIrqlKM },
