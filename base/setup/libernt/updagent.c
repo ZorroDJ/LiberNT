@@ -102,6 +102,23 @@ static ULONG LocalBuild;
 static WCHAR StageDirectory[MAX_PATH];
 static STAGE_CONTEXT Stage;
 
+static void
+UpdateDebug(const char *Format, ...)
+{
+    FILE *File;
+    WCHAR Path[MAX_PATH];
+    va_list Args;
+    GetTempPathW(ARRAYSIZE(Path), Path);
+    StringCchCatW(Path, ARRAYSIZE(Path), L"lntupdate-debug.log");
+    File = _wfopen(Path, L"a");
+    if (!File) return;
+    va_start(Args, Format);
+    vfprintf(File, Format, Args);
+    va_end(Args);
+    fputc('\n', File);
+    fclose(File);
+}
+
 static INT_PTR CALLBACK CheckPageProc(HWND, UINT, WPARAM, LPARAM);
 static INT_PTR CALLBACK AvailablePageProc(HWND, UINT, WPARAM, LPARAM);
 static INT_PTR CALLBACK DownloadPageProc(HWND, UINT, WPARAM, LPARAM);
@@ -709,10 +726,11 @@ CheckForUpdate(
     WCHAR EntryId[UPDATE_ID_CHARS], PreviousDefault[UPDATE_ID_CHARS];
     DWORD Size = sizeof(Server);
     ULONGLONG Now;
-    ULONG StagedTag;
+    ULONG StagedTag, InstalledTag;
     PSTR Json;
     HRESULT hr;
 
+    UpdateDebug("CheckForUpdate enter local=%lu", LocalBuild);
     if (Info->Notes)
         HeapFree(ProcessHeap, 0, Info->Notes);
     ZeroMemory(Info, sizeof(*Info));
@@ -726,7 +744,9 @@ CheckForUpdate(
         return ERROR_BUFFER_OVERFLOW;
     }
 
+    UpdateDebug("check url=%S", Url);
     hr = DownloadFile(Url, Response, NULL, NULL);
+    UpdateDebug("DownloadFile=%08lx", hr);
     if (FAILED(hr))
         return (DWORD)hr;
 
@@ -742,8 +762,10 @@ CheckForUpdate(
     CopyJsonString(Json, "url", Info->Url, ARRAYSIZE(Info->Url));
     CopyJsonString(Json, "sha256", Info->Sha256, ARRAYSIZE(Info->Sha256));
     Info->Notes = JsonString(Json, "notes", UPDATE_NOTES_MAX);
+    InstalledTag = ReadSetting(L"InstalledTag", 0);
     Info->Available = JsonBoolean(Json, "available") && Info->TagId != 0 && Info->Url[0] &&
                       Info->Size != 0 && IsSha256(Info->Sha256) &&
+                      Info->TagId != InstalledTag &&
                       (LocalBuild == 0 || Info->Build > LocalBuild);
     if (JsonBoolean(Json, "available") && !Info->Available && (!IsSha256(Info->Sha256) || Info->Size == 0))
         DPRINT1("The update server offered tag %lu without a size or SHA-256; it is not offered\n", Info->TagId);
@@ -752,6 +774,7 @@ CheckForUpdate(
     Info->Staged = Info->Available && IsStageIntact() && ReadStagedRequest(&StagedTag, EntryId, PreviousDefault) &&
                    StagedTag == Info->TagId;
 
+    UpdateDebug("check tag=%lu build=%lu avail=%d staged=%d", Info->TagId, Info->Build, Info->Available, Info->Staged);
     Now = CurrentTime();
     WriteSetting(L"LastCheck", REG_QWORD, &Now, sizeof(Now));
     if (Info->Available)
@@ -903,7 +926,9 @@ StageUpdate(
     if (!IsSha256(Update.Sha256) || Update.Size == 0)
         return ERROR_INVALID_DATA;
 
+    UpdateDebug("stage start size=%I64u", (ULONGLONG)Update.Size);
     Error = RemoveStage();
+    UpdateDebug("RemoveStage=%lu", Error);
     if (Error != ERROR_SUCCESS)
         return Error;
     StagePath(NULL, Path);
@@ -920,6 +945,7 @@ StageUpdate(
     StagePath(UPDATE_STAGE_IMAGE, Image);
     StagePath(UPDATE_STAGE_LOADER, Loader);
 
+    UpdateDebug("stage dir=%S", Path);
     Context->Step = StageDownload;
     hr = DownloadFile(Update.Url, Zip, StageProgress, Context);
     if (FAILED(hr))
@@ -936,8 +962,10 @@ StageUpdate(
     if (!HashMatches(Zip, Update.Sha256))
         return ERROR_INVALID_DATA;
 
+    UpdateDebug("download/extract ok");
     Context->Step = StageExtract;
     Error = ExtractZipImage(Zip, Image, StageProgress, Context);
+    UpdateDebug("ExtractZipImage=%lu", Error);
     DeleteFileW(Zip);
     if (Error != ERROR_SUCCESS)
         return Error;
@@ -945,23 +973,32 @@ StageUpdate(
     Context->Step = StagePrepare;
     StageProgress(Context, 0, 0);
     if (!HashFile(Image, ImageHash))
+    {
+        UpdateDebug("HashFile failed");
         return ERROR_READ_FAULT;
+    }
+    UpdateDebug("HashFile ok");
     DPRINT1("The staged image has SHA-256 %S\n", ImageHash);
     Error = ExtractImageFile(Image, UPDATE_IMAGE_LOADER, Loader);
+    UpdateDebug("ExtractImageFile=%lu", Error);
     if (Error == ERROR_SUCCESS)
         Error = WriteStagedRequest(ImageHash, NULL, NULL);
+    UpdateDebug("WriteStagedRequest=%lu", Error);
     if (Error != ERROR_SUCCESS)
         return Error;
 
     /* TODO: systems started by FreeLoader have no boot configuration store to stage the install in */
     Error = OpenBcdStore(&Store);
+    UpdateDebug("OpenBcdStore=%lu", Error);
     if (Error != ERROR_SUCCESS)
         return Error;
     Error = AddBcdUpgradeEntry(Store, UPDATE_DESCRIPTION, STAGE_LOADER_PATH, STAGE_IMAGE_PATH, ImageHash, NULL,
                                EntryId, PreviousDefault);
     RegCloseKey(Store);
+    UpdateDebug("AddBcdUpgradeEntry=%lu entry=%S prev=%S", Error, EntryId, PreviousDefault);
     if (Error == ERROR_SUCCESS)
         Error = WriteStagedRequest(ImageHash, EntryId, PreviousDefault);
+    UpdateDebug("final WriteStagedRequest=%lu", Error);
     if (Error == ERROR_SUCCESS)
         SetCompletionCommand(TRUE);
     return Error;
@@ -1066,6 +1103,7 @@ CheckPageProc(
             return TRUE;
 
         case PM_CHECK_DONE:
+            UpdateDebug("PM_CHECK_DONE error=%lu available=%d", (DWORD)wParam, Update.Available);
             SendMessageW(hProgress, PBM_SETMARQUEE, FALSE, 0);
             ShowWindow(hProgress, SW_HIDE);
             if (wParam == ERROR_SUCCESS && Update.Available)
@@ -1781,6 +1819,11 @@ CompleteUpdate(
 
     if (Error == ERROR_SUCCESS)
     {
+        WCHAR TagName[UPDATE_ID_CHARS];
+        ULONG InstalledTag = 0;
+        StagePath(UPDATE_STAGE_REQUEST, Image);
+        ReadStagedRequest(&InstalledTag, TagName, TagName);
+        WriteSetting(L"InstalledTag", REG_DWORD, &InstalledTag, sizeof(InstalledTag));
         if (hwndNotify)
             PostMessageW(hwndNotify, PM_COMPLETE_STEP, IDS_UPDATE_COMPLETE_CLEANUP, 0);
         DPRINT1("Update staging removed with %lu\n", RemoveStage());
@@ -2169,6 +2212,7 @@ wWinMain(
 
     ProcessHeap = GetProcessHeap();
     SetupData.hInstance = hInst;
+    UpdateDebug("wWinMain cmd=%S", lpszCmdLine);
 
     if (GetWindowsDirectoryW(Path, ARRAYSIZE(Path)) &&
         SUCCEEDED(StringCchCatW(Path, ARRAYSIZE(Path), L"\\" UPGRADE_INVENTORY_PATH)))
@@ -2184,6 +2228,7 @@ wWinMain(
     InitCommonControlsEx(&iccx);
     hrCom = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
 
+    UpdateDebug("localbuild=%lu drive=%S stage=%S", LocalBuild, Drive, StageDirectory);
     if (wcsstr(lpszCmdLine, L"/agent"))
         Result = RunAgent();
     else if (wcsstr(lpszCmdLine, L"/install"))
