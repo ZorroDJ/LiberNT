@@ -23,13 +23,13 @@ jobs:
             cp darkmode-analysis/README.canonical.md README.md
             changed=1
           fi
-          if ! cmp -s media/graphics/branding/libernt-banner.png darkmode-analysis/libernt-banner.canonical.png; then
-            cp darkmode-analysis/libernt-banner.canonical.png media/graphics/branding/libernt-banner.png
+          if ! cmp -s media/graphics/branding/libernt-banner-darkmode.png darkmode-analysis/libernt-banner.canonical.png; then
+            cp darkmode-analysis/libernt-banner.canonical.png media/graphics/branding/libernt-banner-darkmode.png
             changed=1
           fi
           [ "$changed" = 1 ] || { echo "README and banner already protected."; exit 0; }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add README.md media/graphics/branding/libernt-banner.png
+          git add README.md media/graphics/branding/libernt-banner-darkmode.png
           git commit -m "docs: restore the fork README and banner after sync"
           git push
