@@ -639,9 +639,12 @@ NwifiTranslateRxFrame(
 
     Payload = In + HeaderLength + RFC1042_SNAP_HEADER_LEN;
     PayloadLength = InLength - HeaderLength - RFC1042_SNAP_HEADER_LEN;
+    /* TAL hands frames with a two-byte tail beyond the MSDU (FCS/pad). */
     if (PayloadLength > ETH_MTU)
     {
-        return NULL;
+        if (PayloadLength > ETH_MTU + 2)
+            return NULL;
+        PayloadLength = ETH_MTU;
     }
 
     EthLength = ETH_HEADER_LEN + PayloadLength;

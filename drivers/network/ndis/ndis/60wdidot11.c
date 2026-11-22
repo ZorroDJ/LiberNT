@@ -631,10 +631,9 @@ Ndis6WdiDot11ParseCapabilities(
 static ULONG Ndis6WdiDot11Mtu(_In_ PNDIS6_WDI_ADAPTER Wdi)
 {
     /* WDI reports the 802.11 MSDU budget, which includes the RFC1042 SNAP
-     * header (8 bytes). IP needs the Ethernet payload MTU. 1492 also covers
-     * Wi-Fi/PPPoE paths whose AP silently drops full 1500-byte frames. */
-    ULONG Mtu = Wdi->Mtu ? Wdi->Mtu : 1492;
-    return min(Mtu, 1492);
+     * header (8 bytes). IP needs the Ethernet payload MTU, capped at 1500. */
+    ULONG Mtu = Wdi->Mtu ? Wdi->Mtu : 1500;
+    return min(Mtu, 1500);
 }
 
 NDIS_STATUS
