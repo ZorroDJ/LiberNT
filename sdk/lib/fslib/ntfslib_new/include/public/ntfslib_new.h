@@ -418,6 +418,16 @@ UINT32
 NtfsFileRecordGetAutomaticTimestampMask(
     _In_ NtfsFileRecord *FileRecord);
 
+/* Deferred size, EA and time copies reach the names at a flush; ending deferral flushes. */
+NTSTATUS
+NtfsFileRecordDeferFileNameUpdates(
+    _In_ NtfsFileRecord *FileRecord,
+    _In_ BOOLEAN Defer);
+
+NTSTATUS
+NtfsFileRecordFlushFileNameUpdates(
+    _In_ NtfsFileRecord *FileRecord);
+
 NTSTATUS
 NtfsFileRecordUpdateAutomaticTimestamps(
     _In_ NtfsFileRecord *FileRecord,
@@ -916,6 +926,20 @@ NtfsMasterFileTableCreateFileInDirectory(
     _In_ ULONG ShortNameLength,
     _Out_ PNtfsFileRecord* File);
 
+/* As NtfsMasterFileTableCreateFileInDirectory, with EAs present from the first record write. */
+NTSTATUS
+NtfsMasterFileTableCreateFileWithEas(
+    _In_ PNtfsMasterFileTable Mft,
+    _In_ PNtfsFileRecord Parent,
+    _In_reads_(NameLength) PWCHAR Name,
+    _In_ ULONG NameLength,
+    _In_ BOOLEAN IsDirectory,
+    _In_ ULONG FileAttributes,
+    _In_ BOOLEAN NameKnownMissing,
+    _In_reads_opt_(EaCount) const NtfsExtendedAttributeUpdate* Eas,
+    _In_ ULONG EaCount,
+    _Out_ PNtfsFileRecord* File);
+
 /*
  * As NtfsMasterFileTableCreateFileInDirectory, with the new file's security
  * descriptor applied while its record is built.
@@ -966,6 +990,32 @@ NtfsMasterFileTableUnlinkFile(
     _In_ ULONG QueryLength,
     _In_ BOOLEAN RemoveDirectory,
     _In_opt_ PNtfsFileRecord CanonicalRecord);
+
+NTSTATUS
+NtfsMasterFileTableDeleteFileInDirectory(
+    _In_ PNtfsMasterFileTable Mft,
+    _Inout_ PNtfsFileRecord Parent,
+    _In_reads_(NameLength) PWCHAR Name,
+    _In_ ULONG NameLength,
+    _In_ BOOLEAN RemoveDirectory,
+    _In_opt_ PNtfsFileRecord CanonicalRecord,
+    _In_ BOOLEAN CanDeleteRecord,
+    _In_ BOOLEAN KeepUnlinkedRecord,
+    _Out_opt_ PBOOLEAN RecordDeleted);
+
+/* As NtfsMasterFileTableDeleteFileInDirectory, through a Child the caller has just looked up there and still owns. */
+NTSTATUS
+NtfsMasterFileTableDeleteChild(
+    _In_ PNtfsMasterFileTable Mft,
+    _Inout_ PNtfsFileRecord Parent,
+    _Inout_ PNtfsFileRecord Child,
+    _In_reads_(NameLength) PWCHAR Name,
+    _In_ ULONG NameLength,
+    _In_ BOOLEAN RemoveDirectory,
+    _In_opt_ PNtfsFileRecord CanonicalRecord,
+    _In_ BOOLEAN CanDeleteRecord,
+    _In_ BOOLEAN KeepUnlinkedRecord,
+    _Out_opt_ PBOOLEAN RecordDeleted);
 
 NTSTATUS
 NtfsMasterFileTableDeleteUnlinkedFile(

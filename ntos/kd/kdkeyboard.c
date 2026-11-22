@@ -39,6 +39,8 @@
 #define KDP_SCAN_RIGHT_SHIFT    0x36
 
 #define KDP_SCAN_EXTENDED       0xE0
+#define KDP_SCAN_KEYPAD_FIRST   0x47
+#define KDP_SCAN_KEYPAD_LAST    0x53
 #define KDP_SCAN_CTRL           0x1D
 #define KDP_SCAN_ALT            0x38
 #define KDP_SCAN_B              0x30
@@ -86,6 +88,10 @@ static const CHAR KdpShiftedScanCodeTable[KDP_KBD_SCANCODE_MAX] =
 /* Whether a shift key is being held down right now */
 static BOOLEAN KdpKeyboardShift = FALSE;
 
+static BOOLEAN KdpKeyboardExtended = FALSE;
+
+static BOOLEAN KdpKeyboardCtrl = FALSE;
+
 static UCHAR KdpKeyboardChord = 0;
 
 /* PUBLIC FUNCTIONS ***********************************************************/
@@ -109,6 +115,20 @@ KdpScanCodeToChar(
 }
 
 /*
+ * What a character becomes with Ctrl held: a letter gives its control
+ * character, as a terminal sends it.
+ */
+CHAR
+KdpControlChar(
+    _In_ CHAR Char)
+{
+    if (((Char >= 'a') && (Char <= 'z')) || ((Char >= 'A') && (Char <= 'Z')))
+        return (CHAR)(Char & 0x1F);
+
+    return Char;
+}
+
+/*
  * One key from the controller, or -1 when nothing was pressed. The scan code
  * is reported as well, because the keys that matter most to a debugger -- the
  * arrows and the paging keys -- stand for no character at all.
@@ -129,6 +149,7 @@ KdbpTryGetCharKeyboard(
     {
         UCHAR Status;
         UCHAR Code;
+        BOOLEAN Extended;
 
         Status = READ_PORT_UCHAR((PUCHAR)KDP_KBD_STATUS_PORT);
 
@@ -157,24 +178,52 @@ KdbpTryGetCharKeyboard(
             continue;
         }
 
+        if (Code == KDP_SCAN_EXTENDED)
+        {
+            KdpKeyboardExtended = TRUE;
+            continue;
+        }
+
+        Extended = KdpKeyboardExtended;
+        KdpKeyboardExtended = FALSE;
+
         /* Letting go of a key only matters for the shift keys */
         if ((Code & KDP_KBD_BREAK_FLAG) != 0)
         {
             Code &= ~KDP_KBD_BREAK_FLAG;
 
-            if ((Code == KDP_SCAN_LEFT_SHIFT) || (Code == KDP_SCAN_RIGHT_SHIFT))
+            if (!Extended && ((Code == KDP_SCAN_LEFT_SHIFT) || (Code == KDP_SCAN_RIGHT_SHIFT)))
                 KdpKeyboardShift = FALSE;
 
+            if (Code == KDP_SCAN_CTRL)
+                KdpKeyboardCtrl = FALSE;
+
+            continue;
+        }
+
+        if (Code == KDP_SCAN_CTRL)
+        {
+            KdpKeyboardCtrl = TRUE;
             continue;
         }
 
         if ((Code == KDP_SCAN_LEFT_SHIFT) || (Code == KDP_SCAN_RIGHT_SHIFT))
         {
-            KdpKeyboardShift = TRUE;
+            if (!Extended)
+                KdpKeyboardShift = TRUE;
+
             continue;
         }
 
         *ScanCode = Code;
+
+        /* Behind the prefix, the keypad codes are the arrows and the keys above them */
+        if (Extended && (Code >= KDP_SCAN_KEYPAD_FIRST) && (Code <= KDP_SCAN_KEYPAD_LAST))
+            return ANSI_NULL;
+
+        if (KdpKeyboardCtrl)
+            return KdpControlChar(KdpScanCodeToChar(Code, KdpKeyboardShift));
+
         return KdpScanCodeToChar(Code, KdpKeyboardShift);
     }
 }
@@ -215,6 +264,10 @@ KdpKeyboardChordHeld(VOID)
             KdpKeyboardChord &= ~Key;
         else
             KdpKeyboardChord |= Key;
+
+        /* A Ctrl let go of while the machine ran must not stay held at the next prompt */
+        if (Code == (KDP_SCAN_CTRL | KDP_KBD_BREAK_FLAG))
+            KdpKeyboardCtrl = FALSE;
     }
 
     return (KdpKeyboardChord == KDP_CHORD_ALL);

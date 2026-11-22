@@ -2285,6 +2285,22 @@ DxgkpBindVidPnTargetsToChildren(
     KeReleaseMutex(&Adapter->VidPnMutex, FALSE);
 }
 
+static BOOLEAN
+DxgkpVidPnDrivesTarget(
+    _In_ PDXGKP_VIDPN VidPn,
+    _In_ D3DDDI_VIDEO_PRESENT_TARGET_ID TargetId)
+{
+    SIZE_T Index;
+
+    ASSERT(VidPn->NumPaths <= DXGKP_MAX_PATHS);
+    for (Index = 0; Index < VidPn->NumPaths; Index++)
+    {
+        if (VidPn->Paths[Index].VidPnTargetId == TargetId)
+            return TRUE;
+    }
+    return FALSE;
+}
+
 static NTSTATUS
 DxgkpSnapshotHotPlugMonitor(
     _In_ PDXGKRNL_ADAPTER Adapter,
@@ -2296,7 +2312,10 @@ DxgkpSnapshotHotPlugMonitor(
     PLIST_ENTRY Entry;
     KIRQL OldIrql;
     ULONG ConnectedCount = 0;
+    BOOLEAN ConnectedDriven = FALSE;
+    BOOLEAN Driven;
 
+    ASSERT(VidPn != NULL);
     RtlZeroMemory(Snapshot, sizeof(*Snapshot));
     KeAcquireSpinLock(&Adapter->ChildListLock, &OldIrql);
     if (InterlockedCompareExchange64(&Adapter->HotPlugGeneration, 0, 0) != ExpectedGeneration)
@@ -2327,12 +2346,14 @@ DxgkpSnapshotHotPlugMonitor(
          * connected output rather than the last, so the choice is stable
          * across rebuilds instead of depending on child list order.
          */
+        Driven = DxgkpVidPnDrivesTarget(VidPn, Child->Descriptor.ChildUid);
         if (ConnectedChild == NULL ||
-            (!ConnectedChild->EdidValid && Child->EdidValid) ||
-            (ConnectedChild->EdidValid == Child->EdidValid &&
-             Child->ConnectSequence > ConnectedChild->ConnectSequence))
+            DxgkHotPlugWorkCorePrefersOutput(Driven, Child->EdidValid, Child->ConnectSequence,
+                                             ConnectedDriven, ConnectedChild->EdidValid,
+                                             ConnectedChild->ConnectSequence))
         {
             ConnectedChild = Child;
+            ConnectedDriven = Driven;
         }
     }
     if (ConnectedCount >= 1)
@@ -3245,17 +3266,22 @@ DxgkpSeedDefaultHotPlugPath(
 
     DxgkpPopulateDefaultPath(&VidPn->Paths[0], 0, Snapshot->TargetId);
     VidPn->NumPaths = 1;
-    /* The other connected outputs show the same source: a clone. */
+    /* The other connected outputs extend the desktop, each on a source of its own; with no source left they clone it */
     {
         ULONG Extra;
 
         for (Extra = 0; Extra < Snapshot->ExtraCount && VidPn->NumPaths < DXGKP_MAX_PATHS; Extra++)
         {
             ULONG ExtraIndex = DxgkVidPnTargetIndexFromId(VidPn, Snapshot->Extra[Extra].ChildUid);
+            D3DDDI_VIDEO_PRESENT_SOURCE_ID ExtraSource =
+                (D3DDDI_VIDEO_PRESENT_SOURCE_ID)DxgkHotPlugWorkCoreExtraPathSource(VidPn->NumPaths, VidPn->NumSources);
 
             if (ExtraIndex == MAXULONG)
                 continue;
-            DxgkpPopulateDefaultPath(&VidPn->Paths[VidPn->NumPaths], 0, Snapshot->Extra[Extra].ChildUid);
+            ASSERT(ExtraSource < DXGKP_MAX_SOURCES);
+            DxgkpPopulateDefaultPath(&VidPn->Paths[VidPn->NumPaths], ExtraSource, Snapshot->Extra[Extra].ChildUid);
+            VidPn->Paths[VidPn->NumPaths].ImportanceOrdinal =
+                (D3DKMDT_VIDPN_PRESENT_PATH_IMPORTANCE)DxgkHotPlugWorkCorePathImportance(VidPn->NumPaths);
             if (VidPn->TargetModeSets[ExtraIndex] != NULL)
                 VidPn->TargetModeSets[ExtraIndex]->PinnedModeId = (UINT)-1;
             VidPn->NumPaths++;
@@ -3294,8 +3320,13 @@ DxgkpSeedDefaultHotPlugPath(
                           sizeof(Path->ContentTransformation.RotationSupport));
         }
 
-        if (VidPn->SourceModeSets[0] != NULL)
-            VidPn->SourceModeSets[0]->PinnedModeId = (UINT)-1;
+        for (PathIndex = 0; PathIndex < VidPn->NumPaths; PathIndex++)
+        {
+            D3DDDI_VIDEO_PRESENT_SOURCE_ID PathSource = VidPn->Paths[PathIndex].VidPnSourceId;
+
+            if (PathSource < DXGKP_MAX_SOURCES && VidPn->SourceModeSets[PathSource] != NULL)
+                VidPn->SourceModeSets[PathSource]->PinnedModeId = (UINT)-1;
+        }
         if (VidPn->TargetModeSets[TargetIndex] != NULL)
             VidPn->TargetModeSets[TargetIndex]->PinnedModeId = (UINT)-1;
     }
@@ -3716,6 +3747,7 @@ DxgkpVidPnRebuildForHotPlugGeneration(
     PDXGK_CHILD_PDO_EXTENSION MatchingChild = NULL;
     KIRQL ChildOldIrql;
     BOOLEAN NotifyMonitorEvent = FALSE;
+    BOOLEAN PathsChanged = FALSE;
     NTSTATUS Status;
 
     PAGED_CODE();
@@ -3846,6 +3878,10 @@ DxgkpVidPnRebuildForHotPlugGeneration(
         PDXGKP_VIDPN OutgoingVidPn = (PDXGKP_VIDPN)Adapter->VidPn;
         SIZE_T OldIndex, NewIndex;
 
+        /* An output joining or leaving the desktop changes the display devices win32k attaches */
+        PathsChanged = OutgoingVidPn == NULL || CandidateObject == NULL ||
+                       OutgoingVidPn->NumPaths != CandidateObject->NumPaths;
+
         /* Paths that drive the same output from the same source before and
          * after; a changed transformation on one is announced below. */
         for (NewIndex = 0; OutgoingVidPn != NULL && CandidateObject != NULL &&
@@ -3884,11 +3920,12 @@ DxgkpVidPnRebuildForHotPlugGeneration(
     DxgkpDisplayPublishInitialMode(Adapter);
     DxgkVidPnDestroyDisplayModeCache(Adapter);
     NotifyMonitorEvent = CommitResult.VidPnCommitted &&
-                         (Snapshot->Connected ||
+                         (Snapshot->Connected || PathsChanged ||
                           CommitResult.CommittedWidth != OldCommittedWidth || CommitResult.CommittedHeight != OldCommittedHeight);
     if (CommitResult.CommittedWidth != OldCommittedWidth || CommitResult.CommittedHeight != OldCommittedHeight ||
         (!Snapshot->Connected && !CommitResult.HeadlessDesktop))
         DxgkpDestroySharedPrimaryLocked(Adapter);
+    DxgkpSyncSourcePrimariesLocked(Adapter);
     /* After the new VidPn is published and the VidPn mutex is dropped, but
      * while the KMD transaction still holds the miniport. */
     while (ComparablePaths != 0)
@@ -7269,6 +7306,10 @@ DxgkpEnsureSharedDisplaySurfaces(
     return Status;
 }
 
+static VOID
+DxgkpDestroySourcePrimariesLocked(
+    _In_ PDXGKRNL_ADAPTER Adapter);
+
 VOID
 DxgkDestroySharedPrimary(
     _In_ PDXGKRNL_ADAPTER Adapter)
@@ -7277,11 +7318,17 @@ DxgkDestroySharedPrimary(
         return;
     (VOID)KeWaitForSingleObject(&Adapter->SharedPrimaryMutex, Executive, KernelMode, FALSE, NULL);
     DxgkpDestroySharedPrimaryLocked(Adapter);
+    DxgkpDestroySourcePrimariesLocked(Adapter);
     DxgkpBeginSharedSurfaceMutationLocked(Adapter);
     DxgkpDestroyRetiredShadowLocked(Adapter);
     DxgkpEndSharedSurfaceMutationLocked(Adapter);
     KeReleaseMutex(&Adapter->SharedPrimaryMutex, FALSE);
 }
+
+static BOOLEAN
+DxgkpSourceUsesSourcePrimary(
+    _In_ PDXGKRNL_ADAPTER Adapter,
+    _In_ D3DDDI_VIDEO_PRESENT_SOURCE_ID VidPnSourceId);
 
 NTSTATUS
 NTAPI
@@ -7344,7 +7391,9 @@ DxgkSetDisplayMode(
     KeReleaseMutex(&Adapter->VidPnMutex, FALSE);
 
     (VOID)KeWaitForSingleObject(&Adapter->SharedPrimaryMutex, Executive, KernelMode, FALSE, NULL);
-    Status = DxgkpEnsureSharedPrimaryLocked(Adapter, VidPnSourceId);
+    /* The shared primary belongs to the desktop source; a further source scans out the caller's primary alone */
+    Status = DxgkpSourceUsesSourcePrimary(Adapter, VidPnSourceId) ? STATUS_SUCCESS :
+             DxgkpEnsureSharedPrimaryLocked(Adapter, VidPnSourceId);
     KeReleaseMutex(&Adapter->SharedPrimaryMutex, FALSE);
     if (!NT_SUCCESS(Status))
         goto Cleanup;
@@ -7412,6 +7461,398 @@ Cleanup:
     return Status;
 }
 
+C_ASSERT(DXGKRNL_MAX_SOURCE_PRIMARIES >= DXGKP_MAX_SOURCES);
+
+static BOOLEAN
+DxgkpSourceUsesSourcePrimary(
+    _In_ PDXGKRNL_ADAPTER Adapter,
+    _In_ D3DDDI_VIDEO_PRESENT_SOURCE_ID VidPnSourceId)
+{
+    return DxgkHotPlugWorkCoreSourceHasOwnPrimary(VidPnSourceId, Adapter->SharedPrimaryVidPnSourceId,
+                                                  Adapter->NumberOfVideoPresentSources, DXGKRNL_MAX_SOURCE_PRIMARIES);
+}
+
+static BOOLEAN
+DxgkpVidPnPinnedSourceSize(
+    _In_ PDXGKRNL_ADAPTER Adapter,
+    _In_ D3DDDI_VIDEO_PRESENT_SOURCE_ID VidPnSourceId,
+    _Out_ PULONG Width,
+    _Out_ PULONG Height)
+{
+    PDXGKP_VIDPN_SOURCE_MODESET SourceSet;
+    PDXGKP_VIDPN VidPn;
+    ULONG Index;
+
+    *Width = 0;
+    *Height = 0;
+    (VOID)KeWaitForSingleObject(&Adapter->VidPnMutex, Executive, KernelMode, FALSE, NULL);
+    VidPn = (PDXGKP_VIDPN)Adapter->VidPn;
+    if (VidPn != NULL && VidPn->Signature == DXGKP_VIDPN_SIGNATURE && VidPnSourceId < VidPn->NumSources)
+    {
+        SourceSet = VidPn->SourceModeSets[VidPnSourceId];
+        for (Index = 0; SourceSet != NULL && Index < SourceSet->NumModes; ++Index)
+        {
+            if (SourceSet->Modes[Index].Id == SourceSet->PinnedModeId &&
+                SourceSet->Modes[Index].Type == D3DKMDT_RMT_GRAPHICS)
+            {
+                *Width = (ULONG)SourceSet->Modes[Index].Format.Graphics.PrimSurfSize.cx;
+                *Height = (ULONG)SourceSet->Modes[Index].Format.Graphics.PrimSurfSize.cy;
+                break;
+            }
+        }
+    }
+    KeReleaseMutex(&Adapter->VidPnMutex, FALSE);
+    return *Width != 0 && *Height != 0;
+}
+
+static VOID
+DxgkpReleaseSourcePrimary(
+    _In_ PDXGKRNL_ADAPTER Adapter,
+    _Inout_ PDXGKRNL_SOURCE_PRIMARY Primary)
+{
+    PDXGKVMM_RESOURCE Resource = NULL;
+
+    if (Primary->ResourceHandle != 0)
+    {
+        /* The resource wrapper owns the allocation once it is attached */
+        if (NT_SUCCESS(DxgkVidMmReferenceResource(Primary->ResourceHandle, FALSE, NULL, &Resource)))
+        {
+            BOOLEAN Owned = Resource->Adapter == Adapter;
+
+            DxgkVidMmDereferenceResource(Resource);
+            if (Owned)
+                DxgkpVidMmDestroyResourceWrapper(Adapter, Resource);
+        }
+    }
+    else if (Primary->AllocationHandle != NULL)
+    {
+        DxgkVidMmDestroyAllocation(Adapter, Primary->AllocationHandle);
+    }
+    RtlZeroMemory(Primary, sizeof(*Primary));
+}
+
+static VOID
+DxgkpDestroySourcePrimaryLocked(
+    _In_ PDXGKRNL_ADAPTER Adapter,
+    _In_ D3DDDI_VIDEO_PRESENT_SOURCE_ID VidPnSourceId)
+{
+    ASSERT(VidPnSourceId < DXGKRNL_MAX_SOURCE_PRIMARIES);
+    DxgkpReleaseSourcePrimary(Adapter, &Adapter->SourcePrimaries[VidPnSourceId]);
+}
+
+static NTSTATUS
+DxgkpQuerySourcePrimaryDriverData(
+    _In_ PDXGKRNL_ADAPTER Adapter,
+    _Inout_ DXGKARG_GETSTANDARDALLOCATIONDRIVERDATA *QueryArgs)
+{
+    NTSTATUS Status;
+
+    if (!DxgkAcquireKmdCall(Adapter))
+        return STATUS_DELETE_PENDING;
+    Status = DXGK_CB_FULL(Adapter, DxgkDdiGetStandardAllocationDriverData)(Adapter->MiniportDeviceContext, QueryArgs);
+    DxgkReleaseKmdCall(Adapter);
+    return Status;
+}
+
+static VOID
+DxgkpDestroySourcePrimariesLocked(
+    _In_ PDXGKRNL_ADAPTER Adapter)
+{
+    D3DDDI_VIDEO_PRESENT_SOURCE_ID SourceId;
+
+    ASSERT(Adapter->SharedPrimaryMutex.OwnerThread == KeGetCurrentThread());
+    for (SourceId = 0; SourceId < DXGKRNL_MAX_SOURCE_PRIMARIES; SourceId++)
+    {
+        if (Adapter->SourcePrimaries[SourceId].AllocationHandle != NULL)
+            DxgkpDestroySourcePrimaryLocked(Adapter, SourceId);
+    }
+}
+
+/* The same standard shared-primary allocation the desktop source gets, made resident, wrapped for sharing and aperture mapped */
+static NTSTATUS
+DxgkpCreateSourcePrimaryAllocation(
+    _In_ PDXGKRNL_ADAPTER Adapter,
+    _In_ D3DDDI_VIDEO_PRESENT_SOURCE_ID VidPnSourceId,
+    _In_ CONST D3DKMDT_SHAREDPRIMARYSURFACEDATA *SurfaceData,
+    _In_ PVOID AllocationPrivateData,
+    _In_ UINT AllocationPrivateDataSize,
+    _In_ PVOID ResourcePrivateData,
+    _In_ UINT ResourcePrivateDataSize,
+    _Out_ PDXGKRNL_SOURCE_PRIMARY Primary)
+{
+    DXGK_ALLOCATIONINFO AllocInfo;
+    DXGK_CREATEALLOCATIONFLAGS CreateFlags;
+    HANDLE AllocationHandle = NULL;
+    HANDLE MiniportResourceHandle = NULL;
+    PDXGKVMM_ALLOCATION Allocation = NULL;
+    PDXGKVMM_RESOURCE Resource = NULL;
+    NTSTATUS Status;
+
+    RtlZeroMemory(&AllocInfo, sizeof(AllocInfo));
+    AllocInfo.pPrivateDriverData = AllocationPrivateData;
+    AllocInfo.PrivateDriverDataSize = AllocationPrivateDataSize;
+    AllocInfo.Size = (SIZE_T)SurfaceData->Width * SurfaceData->Height * 4;
+    RtlZeroMemory(&CreateFlags, sizeof(CreateFlags));
+    CreateFlags.Resource = 1;
+    Status = DxgkVidMmCreateAllocation(Adapter, NULL, &AllocInfo, ResourcePrivateData, ResourcePrivateDataSize, NULL,
+                                       CreateFlags, VidPnSourceId, &AllocationHandle, &MiniportResourceHandle);
+    if (!NT_SUCCESS(Status))
+        return Status;
+    Status = DxgkVidMmReferenceAllocation(AllocationHandle, Adapter, NULL, &Allocation);
+    if (NT_SUCCESS(Status) && !Allocation->Resident)
+        Status = DxgkVidMmMakeResident(Allocation, Adapter);
+    if (NT_SUCCESS(Status))
+        Status = DxgkVidMmAcquireDeviceResidencyReference(Allocation, NULL);
+    if (NT_SUCCESS(Status))
+    {
+        Resource = DxgkVidMmCreateResourceWrapper(Adapter, NULL, MiniportResourceHandle, 0, TRUE, NULL, 0,
+                                                  ResourcePrivateData, ResourcePrivateDataSize);
+        if (Resource == NULL)
+            Status = STATUS_INSUFFICIENT_RESOURCES;
+    }
+    if (NT_SUCCESS(Status))
+        Status = DxgkVidMmAttachAllocationToResource(Resource, Allocation);
+    if (NT_SUCCESS(Status))
+        Status = DxgkVidMmEnsureAllocationApertureMapped(Allocation);
+    if (Allocation != NULL)
+        DxgkVidMmDereferenceAllocation(Allocation);
+    if (!NT_SUCCESS(Status))
+    {
+        if (Resource != NULL)
+            DxgkpVidMmDestroyResourceWrapper(Adapter, Resource);
+        else
+            DxgkVidMmDestroyAllocation(Adapter, AllocationHandle);
+        return Status;
+    }
+
+    Primary->AllocationHandle = AllocationHandle;
+    Primary->ResourceHandle = Resource->Handle;
+    Primary->GlobalShareHandle = Resource->GlobalShareHandle;
+    Primary->Width = SurfaceData->Width;
+    Primary->Height = SurfaceData->Height;
+    Primary->Format = SurfaceData->Format;
+    Primary->ScannedOut = FALSE;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+DxgkpScanOutSourcePrimaryLocked(
+    _In_ PDXGKRNL_ADAPTER Adapter,
+    _In_ D3DDDI_VIDEO_PRESENT_SOURCE_ID VidPnSourceId);
+
+/* A primary of the new size replaces the one the source shows only once the source scans it out */
+static NTSTATUS
+DxgkpEnsureSourcePrimaryLocked(
+    _In_ PDXGKRNL_ADAPTER Adapter,
+    _In_ D3DDDI_VIDEO_PRESENT_SOURCE_ID VidPnSourceId,
+    _In_ ULONG Width,
+    _In_ ULONG Height)
+{
+    DXGKARG_GETSTANDARDALLOCATIONDRIVERDATA QueryArgs;
+    D3DKMDT_SHAREDPRIMARYSURFACEDATA SurfaceData;
+    DXGKRNL_SOURCE_PRIMARY NewPrimary;
+    DXGKRNL_SOURCE_PRIMARY OldPrimary;
+    PDXGKRNL_SOURCE_PRIMARY Primary;
+    PVOID AllocationPrivateData = NULL;
+    PVOID ResourcePrivateData = NULL;
+    UINT AllocationPrivateDataSize;
+    UINT ResourcePrivateDataSize;
+    NTSTATUS Status;
+
+    ASSERT(DxgkpSourceUsesSourcePrimary(Adapter, VidPnSourceId));
+    ASSERT(Width != 0);
+    ASSERT(Height != 0);
+    Primary = &Adapter->SourcePrimaries[VidPnSourceId];
+    if (Primary->AllocationHandle != NULL && Primary->Width == Width && Primary->Height == Height)
+        return STATUS_SUCCESS;
+    RtlZeroMemory(&NewPrimary, sizeof(NewPrimary));
+    if (DXGK_CB_FULL(Adapter, DxgkDdiGetStandardAllocationDriverData) == NULL)
+        return STATUS_NOT_SUPPORTED;
+
+    RtlZeroMemory(&SurfaceData, sizeof(SurfaceData));
+    SurfaceData.Width = Width;
+    SurfaceData.Height = Height;
+    SurfaceData.Format = DxgkpDesktopSurfaceFormat(Adapter, VidPnSourceId);
+    SurfaceData.RefreshRate.Numerator = 60;
+    SurfaceData.RefreshRate.Denominator = 1;
+    SurfaceData.VidPnSourceId = VidPnSourceId;
+    RtlZeroMemory(&QueryArgs, sizeof(QueryArgs));
+    QueryArgs.StandardAllocationType = DXGK_STDALLOCATION_SHAREDPRIMARYSURFACE;
+    QueryArgs.pCreateSharedPrimarySurfaceData = &SurfaceData;
+    Status = DxgkpQuerySourcePrimaryDriverData(Adapter, &QueryArgs);
+    if (!NT_SUCCESS(Status))
+        return Status;
+    AllocationPrivateDataSize = QueryArgs.AllocationPrivateDriverDataSize;
+    ResourcePrivateDataSize = QueryArgs.ResourcePrivateDriverDataSize;
+    if (AllocationPrivateDataSize > DXGKP_STDALLOC_MAX_PRIVATE_SIZE ||
+        ResourcePrivateDataSize > DXGKP_STDALLOC_MAX_PRIVATE_SIZE)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+    if (AllocationPrivateDataSize != 0)
+        AllocationPrivateData = ExAllocatePoolZero(PagedPool, AllocationPrivateDataSize, TAG_DXGK_DISPLAY);
+    if (ResourcePrivateDataSize != 0)
+        ResourcePrivateData = ExAllocatePoolZero(PagedPool, ResourcePrivateDataSize, TAG_DXGK_DISPLAY);
+    if ((AllocationPrivateDataSize != 0 && AllocationPrivateData == NULL) ||
+        (ResourcePrivateDataSize != 0 && ResourcePrivateData == NULL))
+    {
+        Status = STATUS_INSUFFICIENT_RESOURCES;
+    }
+    else
+    {
+        QueryArgs.pAllocationPrivateDriverData = AllocationPrivateData;
+        QueryArgs.pResourcePrivateDriverData = ResourcePrivateData;
+        Status = DxgkpQuerySourcePrimaryDriverData(Adapter, &QueryArgs);
+        if (NT_SUCCESS(Status) &&
+            (QueryArgs.AllocationPrivateDriverDataSize != AllocationPrivateDataSize ||
+             QueryArgs.ResourcePrivateDriverDataSize != ResourcePrivateDataSize))
+        {
+            Status = STATUS_INVALID_PARAMETER;
+        }
+        if (NT_SUCCESS(Status))
+            Status = DxgkpCreateSourcePrimaryAllocation(Adapter, VidPnSourceId, &SurfaceData,
+                                                        AllocationPrivateData, AllocationPrivateDataSize,
+                                                        ResourcePrivateData, ResourcePrivateDataSize, &NewPrimary);
+    }
+    if (AllocationPrivateData != NULL)
+        ExFreePoolWithTag(AllocationPrivateData, TAG_DXGK_DISPLAY);
+    if (ResourcePrivateData != NULL)
+        ExFreePoolWithTag(ResourcePrivateData, TAG_DXGK_DISPLAY);
+    if (!NT_SUCCESS(Status))
+    {
+        DXGKRNL_WARN("DxgkpEnsureSourcePrimary: source %u %lux%lu failed 0x%08lX\n", VidPnSourceId, Width, Height, Status);
+        return Status;
+    }
+
+    ASSERT(NewPrimary.AllocationHandle != NULL);
+    ASSERT(!NewPrimary.ScannedOut);
+    OldPrimary = *Primary;
+    *Primary = NewPrimary;
+    Status = DxgkpScanOutSourcePrimaryLocked(Adapter, VidPnSourceId);
+    if (!NT_SUCCESS(Status) && OldPrimary.ScannedOut)
+    {
+        /* The source keeps showing the primary it had */
+        NewPrimary = *Primary;
+        *Primary = OldPrimary;
+        DxgkpReleaseSourcePrimary(Adapter, &NewPrimary);
+        return Status;
+    }
+    DxgkpReleaseSourcePrimary(Adapter, &OldPrimary);
+    return Status;
+}
+
+/* Point the source's scanout at its primary and make the source visible */
+static NTSTATUS
+DxgkpScanOutSourcePrimaryLocked(
+    _In_ PDXGKRNL_ADAPTER Adapter,
+    _In_ D3DDDI_VIDEO_PRESENT_SOURCE_ID VidPnSourceId)
+{
+    PDXGKRNL_SOURCE_PRIMARY Primary = &Adapter->SourcePrimaries[VidPnSourceId];
+    DXGKARG_SETVIDPNSOURCEVISIBILITY Visibility;
+    PDXGKVMM_ALLOCATION Allocation = NULL;
+    LONG SourceBit;
+    NTSTATUS Status;
+
+    ASSERT(Primary->AllocationHandle != NULL);
+    ASSERT(VidPnSourceId < 32);
+    Status = DxgkVidMmReferenceAllocation(Primary->AllocationHandle, Adapter, NULL, &Allocation);
+    if (!NT_SUCCESS(Status))
+        return Status;
+    Status = DxgkPresentScanOutSourcePrimary(Adapter, Allocation, VidPnSourceId, Primary->Width, Primary->Height);
+    DXGKRNL_TRACE("DxgkpScanOutSourcePrimary: source %u %lux%lu segment %u -> 0x%08lX\n",
+                  VidPnSourceId, Primary->Width, Primary->Height, Allocation->SegmentId, Status);
+    DxgkVidMmDereferenceAllocation(Allocation);
+    if (!NT_SUCCESS(Status))
+        return Status;
+    Primary->ScannedOut = TRUE;
+
+    /* The commit left the source invisible until its first frame; this is it */
+    SourceBit = (LONG)(1UL << VidPnSourceId);
+    if ((InterlockedAnd(&Adapter->DeferredVisibleSourceMask, ~SourceBit) & SourceBit) != 0 &&
+        DXGK_CB(Adapter, DxgkDdiSetVidPnSourceVisibility) != NULL &&
+        DxgkAcquireKmdCall(Adapter))
+    {
+        RtlZeroMemory(&Visibility, sizeof(Visibility));
+        Visibility.VidPnSourceId = VidPnSourceId;
+        Visibility.Visible = TRUE;
+        Status = DXGK_CB(Adapter, DxgkDdiSetVidPnSourceVisibility)(Adapter->MiniportDeviceContext, &Visibility);
+        DxgkReleaseKmdCall(Adapter);
+        if (!NT_SUCCESS(Status))
+            DXGKRNL_WARN("DxgkpScanOutSourcePrimary: SetVisibility(%u) failed 0x%08lX\n", VidPnSourceId, Status);
+    }
+    return STATUS_SUCCESS;
+}
+
+/* After a commit: each further source of the committed topology scans out a primary of its pinned size; the others give theirs up */
+VOID
+DxgkpSyncSourcePrimariesLocked(
+    _In_ PDXGKRNL_ADAPTER Adapter)
+{
+    D3DDDI_VIDEO_PRESENT_SOURCE_ID SourceId;
+    D3DDDI_VIDEO_PRESENT_TARGET_ID TargetId;
+    ULONG Width;
+    ULONG Height;
+    NTSTATUS Status;
+
+    PAGED_CODE();
+    ASSERT(Adapter != NULL);
+    ASSERT(Adapter->SharedPrimaryMutex.OwnerThread == KeGetCurrentThread());
+    for (SourceId = 0; SourceId < DXGKRNL_MAX_SOURCE_PRIMARIES; SourceId++)
+    {
+        if (!DxgkpSourceUsesSourcePrimary(Adapter, SourceId))
+        {
+            if (Adapter->SourcePrimaries[SourceId].AllocationHandle != NULL)
+                DxgkpDestroySourcePrimaryLocked(Adapter, SourceId);
+            continue;
+        }
+        if (!Adapter->VidPnCommitted ||
+            !NT_SUCCESS(DxgkVidPnResolveTargetForSource(Adapter, SourceId, &TargetId)) ||
+            !DxgkpVidPnPinnedSourceSize(Adapter, SourceId, &Width, &Height))
+        {
+            if (Adapter->SourcePrimaries[SourceId].AllocationHandle != NULL)
+                DxgkpDestroySourcePrimaryLocked(Adapter, SourceId);
+            continue;
+        }
+        Status = DxgkpEnsureSourcePrimaryLocked(Adapter, SourceId, Width, Height);
+        if (NT_SUCCESS(Status) && !Adapter->SourcePrimaries[SourceId].ScannedOut)
+            Status = DxgkpScanOutSourcePrimaryLocked(Adapter, SourceId);
+        if (!NT_SUCCESS(Status))
+            DXGKRNL_WARN("DxgkpSyncSourcePrimaries: source %u target %u failed 0x%08lX\n", SourceId, TargetId, Status);
+    }
+}
+
+/* A further source is live once it scans out a primary of its own; that primary's size is the source's mode */
+BOOLEAN
+DxgkVidPnGetSourcePrimarySize(
+    _In_ PDXGKRNL_ADAPTER Adapter,
+    _In_ D3DDDI_VIDEO_PRESENT_SOURCE_ID VidPnSourceId,
+    _Out_ PULONG Width,
+    _Out_ PULONG Height)
+{
+    PDXGKRNL_SOURCE_PRIMARY Primary;
+    BOOLEAN Live = FALSE;
+
+    PAGED_CODE();
+    ASSERT(Adapter != NULL);
+    *Width = 0;
+    *Height = 0;
+    (VOID)KeWaitForSingleObject(&Adapter->SharedPrimaryMutex, Executive, KernelMode, FALSE, NULL);
+    if (DxgkpSourceUsesSourcePrimary(Adapter, VidPnSourceId))
+    {
+        Primary = &Adapter->SourcePrimaries[VidPnSourceId];
+        if (Primary->AllocationHandle != NULL && Primary->ScannedOut)
+        {
+            ASSERT(Primary->Width != 0);
+            ASSERT(Primary->Height != 0);
+            *Width = Primary->Width;
+            *Height = Primary->Height;
+            Live = TRUE;
+        }
+    }
+    KeReleaseMutex(&Adapter->SharedPrimaryMutex, FALSE);
+    return Live;
+}
+
 NTSTATUS
 NTAPI
 DxgkGetSharedPrimaryHandle(
@@ -7442,7 +7883,15 @@ DxgkGetSharedPrimaryHandle(
     {
         D3DDDI_VIDEO_PRESENT_TARGET_ID TargetId;
 
-        /* FIXME: one shared primary per adapter; a second desktop source of a multi-output adapter gets none */
+        /* A further source of an extended desktop has a primary of its own */
+        if (DxgkpSourceUsesSourcePrimary(Adapter, pGetSharedPrimaryHandle->VidPnSourceId))
+        {
+            pGetSharedPrimaryHandle->hSharedPrimary =
+                Adapter->SourcePrimaries[pGetSharedPrimaryHandle->VidPnSourceId].GlobalShareHandle;
+            KeReleaseMutex(&Adapter->SharedPrimaryMutex, FALSE);
+            DxgkDereferenceAdapter(Adapter);
+            return STATUS_SUCCESS;
+        }
         if ((Adapter->SharedPrimaryAllocationHandle != NULL &&
              Adapter->SharedPrimaryVidPnSourceId != pGetSharedPrimaryHandle->VidPnSourceId) ||
             (Adapter->SharedPrimaryAllocationHandle == NULL && Adapter->VidPnCommitted &&
@@ -8775,6 +9224,7 @@ DxgkVidPnSetVideoMode(
     if (Adapter->SharedPrimaryWidth != Result.CommittedWidth || Adapter->SharedPrimaryHeight != Result.CommittedHeight)
         DxgkpDestroySharedPrimaryLocked(Adapter);
     DxgkpDisplayPublishInitialMode(Adapter);
+    DxgkpSyncSourcePrimariesLocked(Adapter);
     for (TargetModeIndex = 0;
          TargetModeIndex < Current->NumPaths &&
          TargetModeIndex < ((PDXGKP_VIDPN)Adapter->VidPn)->NumPaths;

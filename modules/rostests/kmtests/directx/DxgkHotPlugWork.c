@@ -127,6 +127,40 @@ static VOID DxgkHotPlugWorkTestBoundedRetry(VOID)
     ok_bool_false(DxgkHotPlugWorkCoreShouldRetry(STATUS_NOT_SUPPORTED, 0), "permanent failures are not retried");
 }
 
+static VOID DxgkHotPlugWorkTestDesktopOutput(VOID)
+{
+    ok_bool_false(DxgkHotPlugWorkCorePrefersOutput(FALSE, TRUE, 9, TRUE, TRUE, 3), "a newly connected output does not take the desktop from the output showing it");
+    ok_bool_true(DxgkHotPlugWorkCorePrefersOutput(TRUE, FALSE, 1, FALSE, TRUE, 5), "the output the topology drives keeps the desktop");
+    ok_bool_true(DxgkHotPlugWorkCorePrefersOutput(FALSE, TRUE, 1, FALSE, FALSE, 5), "an output with an EDID wins among undriven outputs");
+    ok_bool_true(DxgkHotPlugWorkCorePrefersOutput(FALSE, TRUE, 7, FALSE, TRUE, 5), "the last connected output wins among equal undriven outputs");
+    ok_bool_false(DxgkHotPlugWorkCorePrefersOutput(TRUE, TRUE, 5, TRUE, TRUE, 5), "an equal output does not replace the chosen one");
+}
+
+static VOID DxgkHotPlugWorkTestPathImportance(VOID)
+{
+    ok_eq_ulong(DxgkHotPlugWorkCorePathImportance(0), 1UL);
+    ok_eq_ulong(DxgkHotPlugWorkCorePathImportance(1), 2UL);
+    ok_eq_ulong(DxgkHotPlugWorkCorePathImportance(15), 16UL);
+}
+
+static VOID DxgkHotPlugWorkTestExtendSource(VOID)
+{
+    ok_eq_ulong(DxgkHotPlugWorkCoreExtraPathSource(1, 4), 1UL);
+    ok_eq_ulong(DxgkHotPlugWorkCoreExtraPathSource(3, 4), 3UL);
+    ok_eq_ulong(DxgkHotPlugWorkCoreExtraPathSource(1, 1), 0UL);
+    ok_eq_ulong(DxgkHotPlugWorkCoreExtraPathSource(4, 4), 0UL);
+}
+
+static VOID DxgkHotPlugWorkTestSourcePrimary(VOID)
+{
+    ok_bool_true(DxgkHotPlugWorkCoreSourceHasOwnPrimary(1, 0, 4, 16), "a further source has a primary of its own");
+    ok_bool_true(DxgkHotPlugWorkCoreSourceHasOwnPrimary(3, 0, 4, 16), "every further source has one");
+    ok_bool_false(DxgkHotPlugWorkCoreSourceHasOwnPrimary(0, 0, 4, 16), "the desktop source keeps the shared primary");
+    ok_bool_false(DxgkHotPlugWorkCoreSourceHasOwnPrimary(2, 2, 4, 16), "the source holding the shared primary has no second one");
+    ok_bool_false(DxgkHotPlugWorkCoreSourceHasOwnPrimary(4, 0, 4, 16), "a source the adapter does not have gets none");
+    ok_bool_false(DxgkHotPlugWorkCoreSourceHasOwnPrimary(16, 0, 32, 16), "a source beyond the primary table gets none");
+}
+
 START_TEST(DxgkHotPlugWork)
 {
     DxgkHotPlugWorkTestCoalescing();
@@ -137,4 +171,8 @@ START_TEST(DxgkHotPlugWork)
     DxgkHotPlugWorkTestZeroPresentEnumeration();
     DxgkHotPlugWorkTestStopRecoveryOrdering();
     DxgkHotPlugWorkTestBoundedRetry();
+    DxgkHotPlugWorkTestDesktopOutput();
+    DxgkHotPlugWorkTestPathImportance();
+    DxgkHotPlugWorkTestExtendSource();
+    DxgkHotPlugWorkTestSourcePrimary();
 }

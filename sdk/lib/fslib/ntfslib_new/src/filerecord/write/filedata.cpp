@@ -2155,6 +2155,7 @@ FileRecord::MaterializeWofCompressedData(
     }
     else if (LogicalSize != 0)
     {
+        AllocatedSize = NtfsResidentAllocatedSize(LogicalSize);
         ResidentData =
             new(PagedPool, TAG_NTFS)
                 UCHAR[(ULONG)LogicalSize];
@@ -2710,6 +2711,19 @@ Retry:
                     : OldResidentDataLength);
             if (Status == STATUS_BUFFER_TOO_SMALL &&
                 AttributeOwner == this &&
+                !SpaceReleased &&
+                !FindAttributeInRecord(TypeAttributeList, NULL, NULL))
+            {
+                /* A full base without a list first moves attributes into an extension. */
+                Status = CreateInitialAttributeList();
+                if (NT_SUCCESS(Status))
+                {
+                    *Length = RequestedLength;
+                    goto Retry;
+                }
+            }
+            else if (Status == STATUS_BUFFER_TOO_SMALL &&
+                AttributeOwner == this &&
                 !SpaceReleased)
             {
                 SpaceReleased = TRUE;
@@ -2759,7 +2773,7 @@ Retry:
                 OldResidentDataLength)
         {
             Status = AttributeOwner->SynchronizeFileNameSizes(
-                0,
+                NtfsResidentAllocatedSize(TargetAttribute->Resident.DataLength),
                 TargetAttribute->Resident.DataLength);
             if (!NT_SUCCESS(Status))
                 goto RestoreResident;
@@ -3279,7 +3293,7 @@ FileRecord::SetFileDataSize(_In_ AttributeType AttrType,
         AttributeOwner == this)
     {
         Status = SynchronizeFileNameSizes(
-            0,
+            NtfsResidentAllocatedSize(NewSize),
             NewSize);
         if (!NT_SUCCESS(Status))
             goto RestoreResident;
@@ -4895,7 +4909,7 @@ Rollback:
     ClearDataRunCache();
     if (NameSizesAttempted)
     {
-        NTSTATUS RestoreStatus = SynchronizeFileNameSizes(0, OldDataLength);
+        NTSTATUS RestoreStatus = SynchronizeFileNameSizes(NtfsResidentAllocatedSize(OldDataLength), OldDataLength);
         if (!NT_SUCCESS(RestoreStatus))
             Status = RestoreStatus;
     }
@@ -4941,7 +4955,7 @@ FileRecord::SynchronizeExtensionDataSizes()
               DataAttribute->NonResident.AllocatedSize,
               DataAttribute->NonResident.DataSize)
         : SynchronizeFileNameSizes(
-              0,
+              NtfsResidentAllocatedSize(DataAttribute->Resident.DataLength),
               DataAttribute->Resident.DataLength);
     if (!NT_SUCCESS(Status))
         return Status;

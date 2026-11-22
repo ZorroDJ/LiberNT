@@ -673,6 +673,8 @@ public:
     ID3D11ShaderResourceView *shader_resources[6][128] = {};
     ID3D11SamplerState *samplers[6][16] = {};
     ID3D11Buffer *constant_buffers[6][14] = {};
+    UINT constant_first[6][14] = {}, constant_counts[6][14] = {};
+    bool constant_ranged[6][14] = {};
     ID3D11RenderTargetView *render_targets[8] = {};
     ID3D11DepthStencilView *depth_view = NULL;
     ID3D11UnorderedAccessView *compute_uavs[8] = {}, *pixel_uavs[8] = {};
@@ -698,7 +700,9 @@ public:
     D3D11_VIEWPORT viewports[16] = {};
     D3D11_RECT scissors[16] = {};
     UINT viewport_count = 0, scissor_count = 0;
-    void SetConstantBuffers(UINT stage, UINT start, UINT count, ID3D11Buffer *const *buffers);
+    void SetConstantBuffers(UINT stage, UINT start, UINT count, ID3D11Buffer *const *buffers,
+            const UINT *first = NULL, const UINT *constants = NULL);
+    void RestoreConstantBuffers(NativeContext *destination, UINT stage, UINT start, UINT count);
     void SetSamplers(UINT stage, UINT start, UINT count, ID3D11SamplerState *const *states);
     void SetShaderResources(UINT stage, UINT start, UINT count, ID3D11ShaderResourceView *const *views);
     UINT CountBindings(const void *object) const;
@@ -4609,6 +4613,35 @@ static bool NativeFeatureData(void *data, UINT size, SIZE_T expected)
     return data && size == expected;
 }
 
+/* The D3D11.1 and later DDIs bind constant buffer ranges; the 11.0 DDI cannot */
+static PFND3D11_1DDI_SETCONSTANTBUFFERS NativeRangedConstantBuffers(NativeDevice *device, UINT stage)
+{
+    if (device->ddi11_1)
+    {
+        const D3D11_1DDI_DEVICEFUNCS &f = device->ddi11_1_functions;
+        return stage == 0 ? f.pfnVsSetConstantBuffers : stage == 1 ? f.pfnPsSetConstantBuffers
+                : stage == 2 ? f.pfnGsSetConstantBuffers : stage == 3 ? f.pfnHsSetConstantBuffers
+                : stage == 4 ? f.pfnDsSetConstantBuffers : f.pfnCsSetConstantBuffers;
+    }
+    if (device->wddm20)
+    {
+        const D3DWDDM2_0DDI_DEVICEFUNCS &f = device->wddm20_functions;
+        return stage == 0 ? f.pfnVsSetConstantBuffers : stage == 1 ? f.pfnPsSetConstantBuffers
+                : stage == 2 ? f.pfnGsSetConstantBuffers : stage == 3 ? f.pfnHsSetConstantBuffers
+                : stage == 4 ? f.pfnDsSetConstantBuffers : f.pfnCsSetConstantBuffers;
+    }
+    return NULL;
+}
+
+static PFND3D11_1DDI_CLEARVIEW NativeClearViewFunction(NativeDevice *device)
+{
+    if (device->ddi11_1)
+        return device->ddi11_1_functions.pfnClearView;
+    if (device->wddm20)
+        return device->wddm20_functions.pfnClearView;
+    return NULL;
+}
+
 HRESULT STDMETHODCALLTYPE NativeDevice::CheckFeatureSupport(D3D11_FEATURE feature, void *data, UINT size)
 {
     switch (feature)
@@ -4671,6 +4704,9 @@ HRESULT STDMETHODCALLTYPE NativeDevice::CheckFeatureSupport(D3D11_FEATURE featur
             D3D11_FEATURE_DATA_D3D11_OPTIONS *caps = static_cast<D3D11_FEATURE_DATA_D3D11_OPTIONS *>(data);
             ZeroMemory(caps, sizeof(*caps));
             caps->OutputMergerLogicOp = !!options_caps.OutputMergerLogicOp;
+            caps->ConstantBufferOffsetting = NativeRangedConstantBuffers(this, 0) != NULL;
+            caps->ClearView = NativeClearViewFunction(this) != NULL;
+            /* TODO: the other D3D11.1 DDI options (discard, copy flags, partial constant buffer updates, NO_OVERWRITE maps, forced sample counts, SAD4, extended doubles) once the runtime forwards them */
             return S_OK;
         }
         case D3D11_FEATURE_ARCHITECTURE_INFO:
@@ -5124,48 +5160,50 @@ void STDMETHODCALLTYPE NativeContext::DiscardView(ID3D11View *)
 {
 }
 
-static bool NativeWholeConstantBufferRange(const UINT *first, const UINT *count)
-{
-    return !first && !count;
-}
-
 void STDMETHODCALLTYPE NativeContext::VSSetConstantBuffers1(UINT start, UINT count,
         ID3D11Buffer *const *buffers, const UINT *first, const UINT *constants)
 {
-    if (NativeWholeConstantBufferRange(first, constants)) VSSetConstantBuffers(start, count, buffers);
+    if (StateCallIgnored()) return;
+    SetConstantBuffers(0, start, count, buffers, first, constants);
 }
 
 void STDMETHODCALLTYPE NativeContext::HSSetConstantBuffers1(UINT start, UINT count,
         ID3D11Buffer *const *buffers, const UINT *first, const UINT *constants)
 {
-    if (NativeWholeConstantBufferRange(first, constants)) HSSetConstantBuffers(start, count, buffers);
+    if (StateCallIgnored()) return;
+    SetConstantBuffers(3, start, count, buffers, first, constants);
 }
 
 void STDMETHODCALLTYPE NativeContext::DSSetConstantBuffers1(UINT start, UINT count,
         ID3D11Buffer *const *buffers, const UINT *first, const UINT *constants)
 {
-    if (NativeWholeConstantBufferRange(first, constants)) DSSetConstantBuffers(start, count, buffers);
+    if (StateCallIgnored()) return;
+    SetConstantBuffers(4, start, count, buffers, first, constants);
 }
 
 void STDMETHODCALLTYPE NativeContext::GSSetConstantBuffers1(UINT start, UINT count,
         ID3D11Buffer *const *buffers, const UINT *first, const UINT *constants)
 {
-    if (NativeWholeConstantBufferRange(first, constants)) GSSetConstantBuffers(start, count, buffers);
+    if (StateCallIgnored()) return;
+    SetConstantBuffers(2, start, count, buffers, first, constants);
 }
 
 void STDMETHODCALLTYPE NativeContext::PSSetConstantBuffers1(UINT start, UINT count,
         ID3D11Buffer *const *buffers, const UINT *first, const UINT *constants)
 {
-    if (NativeWholeConstantBufferRange(first, constants)) PSSetConstantBuffers(start, count, buffers);
+    if (StateCallIgnored()) return;
+    SetConstantBuffers(1, start, count, buffers, first, constants);
 }
 
 void STDMETHODCALLTYPE NativeContext::CSSetConstantBuffers1(UINT start, UINT count,
         ID3D11Buffer *const *buffers, const UINT *first, const UINT *constants)
 {
-    if (NativeWholeConstantBufferRange(first, constants)) CSSetConstantBuffers(start, count, buffers);
+    if (StateCallIgnored()) return;
+    SetConstantBuffers(5, start, count, buffers, first, constants);
 }
 
 static void NativeGetConstantBuffers1(NativeDevice *device, ID3D11Buffer *const *slots,
+        const bool *ranged, const UINT *slot_first, const UINT *slot_counts,
         UINT capacity, UINT start, UINT count, ID3D11Buffer **buffers,
         UINT *first, UINT *constants)
 {
@@ -5179,8 +5217,9 @@ static void NativeGetConstantBuffers1(NativeDevice *device, ID3D11Buffer *const 
             buffers[i] = buffer;
             if (buffer) buffer->AddRef();
         }
-        if (first) first[i] = 0;
-        if (constants)
+        if (first) first[i] = ranged[start + i] ? slot_first[start + i] : 0;
+        if (constants && ranged[start + i]) constants[i] = slot_counts[start + i];
+        else if (constants)
         {
             NativeBuffer *native = GetNativeBuffer(buffer, device);
             constants[i] = native ? min(native->desc.ByteWidth / 16,
@@ -5192,56 +5231,102 @@ static void NativeGetConstantBuffers1(NativeDevice *device, ID3D11Buffer *const 
 void STDMETHODCALLTYPE NativeContext::VSGetConstantBuffers1(UINT start, UINT count,
         ID3D11Buffer **buffers, UINT *first, UINT *constants)
 {
-    NativeGetConstantBuffers1(device, constant_buffers[0], ARRAYSIZE(constant_buffers[0]),
+    NativeGetConstantBuffers1(device, constant_buffers[0], constant_ranged[0], constant_first[0], constant_counts[0],
+            ARRAYSIZE(constant_buffers[0]),
             start, count, buffers, first, constants);
 }
 
 void STDMETHODCALLTYPE NativeContext::HSGetConstantBuffers1(UINT start, UINT count,
         ID3D11Buffer **buffers, UINT *first, UINT *constants)
 {
-    NativeGetConstantBuffers1(device, constant_buffers[3], ARRAYSIZE(constant_buffers[3]),
+    NativeGetConstantBuffers1(device, constant_buffers[3], constant_ranged[3], constant_first[3], constant_counts[3],
+            ARRAYSIZE(constant_buffers[3]),
             start, count, buffers, first, constants);
 }
 
 void STDMETHODCALLTYPE NativeContext::DSGetConstantBuffers1(UINT start, UINT count,
         ID3D11Buffer **buffers, UINT *first, UINT *constants)
 {
-    NativeGetConstantBuffers1(device, constant_buffers[4], ARRAYSIZE(constant_buffers[4]),
+    NativeGetConstantBuffers1(device, constant_buffers[4], constant_ranged[4], constant_first[4], constant_counts[4],
+            ARRAYSIZE(constant_buffers[4]),
             start, count, buffers, first, constants);
 }
 
 void STDMETHODCALLTYPE NativeContext::GSGetConstantBuffers1(UINT start, UINT count,
         ID3D11Buffer **buffers, UINT *first, UINT *constants)
 {
-    NativeGetConstantBuffers1(device, constant_buffers[2], ARRAYSIZE(constant_buffers[2]),
+    NativeGetConstantBuffers1(device, constant_buffers[2], constant_ranged[2], constant_first[2], constant_counts[2],
+            ARRAYSIZE(constant_buffers[2]),
             start, count, buffers, first, constants);
 }
 
 void STDMETHODCALLTYPE NativeContext::PSGetConstantBuffers1(UINT start, UINT count,
         ID3D11Buffer **buffers, UINT *first, UINT *constants)
 {
-    NativeGetConstantBuffers1(device, constant_buffers[1], ARRAYSIZE(constant_buffers[1]),
+    NativeGetConstantBuffers1(device, constant_buffers[1], constant_ranged[1], constant_first[1], constant_counts[1],
+            ARRAYSIZE(constant_buffers[1]),
             start, count, buffers, first, constants);
 }
 
 void STDMETHODCALLTYPE NativeContext::CSGetConstantBuffers1(UINT start, UINT count,
         ID3D11Buffer **buffers, UINT *first, UINT *constants)
 {
-    NativeGetConstantBuffers1(device, constant_buffers[5], ARRAYSIZE(constant_buffers[5]),
+    NativeGetConstantBuffers1(device, constant_buffers[5], constant_ranged[5], constant_first[5], constant_counts[5],
+            ARRAYSIZE(constant_buffers[5]),
             start, count, buffers, first, constants);
 }
 
 void STDMETHODCALLTYPE NativeContext::ClearView(ID3D11View *view, const FLOAT color[4],
-        const D3D11_RECT *rects, UINT)
+        const D3D11_RECT *rects, UINT count)
 {
-    if (!view || !color || rects) return;
-    ID3D11RenderTargetView *target = NULL;
-    if (SUCCEEDED(view->QueryInterface(IID_ID3D11RenderTargetView,
-            reinterpret_cast<void **>(&target))))
+    if (!view || !color || (count && !rects)) return;
+    if (deferred)
     {
-        ClearRenderTargetView(target, color);
-        target->Release();
+        NativeLock guard(device);
+        NativeCommandRef<ID3D11View> retained(view);
+        NativeCommandArray<FLOAT> values(4, color);
+        NativeCommandArray<D3D11_RECT> regions(count, rects);
+        if (Captured(values) && Captured(regions))
+            Record([=](NativeContext *context) { context->ClearView(retained.Get(), values.Data(), regions.Data(), count); });
+        return;
     }
+
+    PFND3D11_1DDI_CLEARVIEW clear = NativeClearViewFunction(device);
+    ID3D11RenderTargetView *target = NULL;
+    ID3D11UnorderedAccessView *unordered = NULL;
+    FLOAT value[4];
+    memcpy(value, color, sizeof(value));
+    if (SUCCEEDED(view->QueryInterface(IID_ID3D11RenderTargetView, reinterpret_cast<void **>(&target))))
+    {
+        NativeRenderTargetView *native = static_cast<NativeRenderTargetView *>(target);
+        if (native->device == device && clear)
+        {
+            NativeLock guard(device);
+            NativeWaitPendingRelease(native->texture, device);
+            clear(device->driver_device, D3D10DDI_HT_RENDERTARGETVIEW, native->handle.pDrvPrivate, value,
+                  reinterpret_cast<const D3D10_DDI_RECT *>(rects), count);
+        }
+        else if (native->device == device && !count)
+        {
+            ClearRenderTargetView(target, color);
+        }
+        target->Release();
+        return;
+    }
+    if (SUCCEEDED(view->QueryInterface(IID_ID3D11UnorderedAccessView, reinterpret_cast<void **>(&unordered))))
+    {
+        NativeUnorderedAccessView *native = static_cast<NativeUnorderedAccessView *>(unordered);
+        if (native->device == device && clear)
+        {
+            NativeLock guard(device);
+            NativeWaitPendingRelease(native->texture, device);
+            clear(device->driver_device, D3D11DDI_HT_UNORDEREDACCESSVIEW, native->handle.pDrvPrivate, value,
+                  reinterpret_cast<const D3D10_DDI_RECT *>(rects), count);
+        }
+        unordered->Release();
+        return;
+    }
+    /* TODO: ClearView on video processor input/output and decoder output views */
 }
 
 void STDMETHODCALLTYPE NativeContext::DiscardView1(ID3D11View *, const D3D11_RECT *, UINT)
@@ -6345,9 +6430,15 @@ NATIVE_SET_SHADER(DSSetShader, ID3D11DomainShader, NativeDomainShader, domain_sh
 NATIVE_SET_SHADER(CSSetShader, ID3D11ComputeShader, NativeComputeShader, compute_shader, pfnCsSetShader)
 #undef NATIVE_SET_SHADER
 
-void NativeContext::SetConstantBuffers(UINT stage, UINT start, UINT count, ID3D11Buffer *const *buffers)
+void NativeContext::SetConstantBuffers(UINT stage, UINT start, UINT count, ID3D11Buffer *const *buffers,
+        const UINT *first, const UINT *constants)
 {
     if (start > 14 || count > 14 - start || (count && !buffers)) return;
+    if (!first != !constants) return;
+    for (UINT i = 0; first && i < count; ++i)
+        if (constants[i] > D3D11_REQ_CONSTANT_BUFFER_ELEMENT_COUNT || first[i] % 16 || constants[i] % 16) return;
+    PFND3D11_1DDI_SETCONSTANTBUFFERS ranged = first ? NativeRangedConstantBuffers(device, stage) : NULL;
+    if (first && !ranged) return;
     D3D10DDI_HRESOURCE handles[14] = {};
     for (UINT i = 0; i < count; ++i)
     {
@@ -6361,7 +6452,7 @@ void NativeContext::SetConstantBuffers(UINT stage, UINT start, UINT count, ID3D1
             : stage == 2 ? device->functions.pfnGsSetConstantBuffers
             : stage == 3 ? device->functions.pfnHsSetConstantBuffers
             : stage == 4 ? device->functions.pfnDsSetConstantBuffers : device->functions.pfnCsSetConstantBuffers;
-    if (!set)
+    if (!set && !ranged)
     {
         for (UINT i = 0; i < count; ++i) if (buffers[i]) { Unimplemented("SetConstantBuffers"); break; }
         return;
@@ -6370,10 +6461,35 @@ void NativeContext::SetConstantBuffers(UINT stage, UINT start, UINT count, ID3D1
     if (deferred && !recording_disabled)
     {
         NativeCommandArray<ID3D11Buffer *> values(count, buffers);
-        if (Captured(values)) Record([=](NativeContext *context) { context->SetConstantBuffers(stage, start, count, values.Data()); });
+        NativeCommandArray<UINT> offsets(first ? count : 0, first), sizes(first ? count : 0, constants);
+        if (Captured(values) && Captured(offsets) && Captured(sizes))
+            Record([=](NativeContext *context) { context->SetConstantBuffers(stage, start, count, values.Data(),
+                    first ? offsets.Data() : NULL, first ? sizes.Data() : NULL); });
     }
-    if (!deferred) set(device->driver_device, start, count, handles);
-    for (UINT i = 0; i < count; ++i) ReplaceObject(constant_buffers[stage][start + i], buffers[i]);
+    if (!deferred && ranged) ranged(device->driver_device, start, count, handles, first, constants);
+    else if (!deferred) set(device->driver_device, start, count, handles);
+    for (UINT i = 0; i < count; ++i)
+    {
+        ReplaceObject(constant_buffers[stage][start + i], buffers[i]);
+        constant_ranged[stage][start + i] = first != NULL;
+        constant_first[stage][start + i] = first ? first[i] : 0;
+        constant_counts[stage][start + i] = first ? constants[i] : 0;
+    }
+}
+
+void NativeContext::RestoreConstantBuffers(NativeContext *destination, UINT stage, UINT start, UINT count)
+{
+    bool ranged = false;
+    for (UINT slot = start; slot < start + count; ++slot) ranged |= constant_ranged[stage][slot];
+    if (!ranged)
+    {
+        destination->SetConstantBuffers(stage, start, count, &constant_buffers[stage][start]);
+        return;
+    }
+    for (UINT slot = start; slot < start + count; ++slot)
+        destination->SetConstantBuffers(stage, slot, 1, &constant_buffers[stage][slot],
+                constant_ranged[stage][slot] ? &constant_first[stage][slot] : NULL,
+                constant_ranged[stage][slot] ? &constant_counts[stage][slot] : NULL);
 }
 void STDMETHODCALLTYPE NativeContext::VSSetConstantBuffers(UINT start, UINT count, ID3D11Buffer *const *buffers) { if (StateCallIgnored()) return; SetConstantBuffers(0, start, count, buffers); }
 void STDMETHODCALLTYPE NativeContext::PSSetConstantBuffers(UINT start, UINT count, ID3D11Buffer *const *buffers) { if (StateCallIgnored()) return; SetConstantBuffers(1, start, count, buffers); }

@@ -340,6 +340,10 @@ BOOL
 SETUPAPI_IsTargetOSVersionCompatible(
     IN PCWSTR TargetOSVersion);
 
+VOID
+SETUPAPI_AddPackageRootDevices(
+    IN PCWSTR InfPath);
+
 BOOL
 CreateDeviceInfo(
     IN struct DeviceInfoSet *list,
@@ -445,6 +449,12 @@ SETUPAPI_InstallFilters(
     IN HINF hInf,
     IN PCWSTR FiltersSection,
     IN HKEY InstanceKey);
+
+BOOL
+SETUPAPI_InstallWdfSection(
+    IN HINF hInf,
+    IN PCWSTR WdfSection,
+    IN HKEY MachineKey);
 
 /* install.c */
 

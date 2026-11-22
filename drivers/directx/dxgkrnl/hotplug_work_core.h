@@ -71,6 +71,40 @@ FORCEINLINE NTSTATUS DxgkHotPlugWorkCoreValidateEnumerationLocked(_In_ volatile 
     return STATUS_SUCCESS;
 }
 
+/* Which connected output carries the desktop: the one the current topology already drives, then one
+ * with an EDID, then the one connected last.  A newly connected output joins the desktop; it does not
+ * take the main display from the output showing it. */
+FORCEINLINE BOOLEAN DxgkHotPlugWorkCorePrefersOutput(
+    _In_ BOOLEAN CandidateDriven, _In_ BOOLEAN CandidateEdid, _In_ ULONG64 CandidateSequence,
+    _In_ BOOLEAN CurrentDriven, _In_ BOOLEAN CurrentEdid, _In_ ULONG64 CurrentSequence)
+{
+    if (CandidateDriven != CurrentDriven)
+        return CandidateDriven;
+    if (CandidateEdid != CurrentEdid)
+        return CandidateEdid;
+    return CandidateSequence > CurrentSequence;
+}
+
+/* Path importance ordinals are unique within a topology (D3DKMDT_VIDPN_PRESENT_PATH_IMPORTANCE): 1 is primary */
+FORCEINLINE ULONG DxgkHotPlugWorkCorePathImportance(_In_ SIZE_T PathIndex)
+{
+    ASSERT(PathIndex < 255);
+    return (ULONG)(1 + PathIndex);
+}
+
+/* A further connected output extends the desktop on a source of its own; with no source left it clones source 0 */
+FORCEINLINE ULONG DxgkHotPlugWorkCoreExtraPathSource(_In_ SIZE_T PathIndex, _In_ SIZE_T NumSources)
+{
+    ASSERT(PathIndex != 0);
+    return PathIndex < NumSources ? (ULONG)PathIndex : 0;
+}
+
+/* A further source of an extended desktop scans out a primary of its own; the desktop source keeps the adapter's shared primary */
+FORCEINLINE BOOLEAN DxgkHotPlugWorkCoreSourceHasOwnPrimary(_In_ ULONG SourceId, _In_ ULONG DesktopSourceId, _In_ ULONG NumSources, _In_ ULONG MaxSourcePrimaries)
+{
+    return SourceId != 0 && SourceId != DesktopSourceId && SourceId < NumSources && SourceId < MaxSourcePrimaries;
+}
+
 FORCEINLINE BOOLEAN DxgkHotPlugWorkCoreCanAcquireLevel3AfterRundown(_In_ volatile const LONG *Active)
 {
     return *Active == 0;

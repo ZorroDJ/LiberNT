@@ -53,6 +53,9 @@ list(APPEND SOURCE
     GetClassInfo.c
     GetDCEx.c
     GetProp.c
+    SetWindowPlacementMaximized.c
+    MdiCreateDelivery.c
+    RetainedDCResize.c
     WindowRegionDC.c
     GetIconInfo.c
     GetKeyState.c

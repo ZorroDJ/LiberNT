@@ -445,11 +445,11 @@ MasterFileTable::InsertFileNameLink(
     if (!(File->Header->Flags & FR_IS_DIRECTORY))
     {
         PAttribute DataAttribute =
-            File->FindAttributeInRecord(TypeData, NULL, NULL);
+            File->GetAttribute(TypeData, NULL);
 
         if (DataAttribute && !DataAttribute->IsNonResident)
         {
-            Value->AllocatedSize = 0;
+            Value->AllocatedSize = NtfsResidentAllocatedSize(DataAttribute->Resident.DataLength);
             Value->DataSize = DataAttribute->Resident.DataLength;
         }
         else if (DataAttribute && DataAttribute->NonResident.FirstVCN == 0)
@@ -593,11 +593,21 @@ MasterFileTable::InsertFileNameAttribute(
         AttributeId = Inserted->AttributeID;
         OwnerReference = MakeFileReference(Owner);
         Status = File->InsertAttributeListEntry(Inserted, Owner, 0, FALSE, &OwnerReferenced);
+        /* Publishing the list entry may move base attributes and drops cached extents. */
+        if (!Allocated)
+        {
+            if (Owner != File)
+                Owner = File->GetExtentRecord(OwnerReference);
+            Inserted = Owner ? Owner->FindAttributeInRecord(TypeFileName, NULL, &AttributeId) : NULL;
+        }
     }
     if (!NT_SUCCESS(Status))
     {
-        if (Inserted && NT_SUCCESS(Owner->RemoveAttributeRecord(Inserted)) && Owner != File && !Allocated)
+        if (Inserted && Owner && NT_SUCCESS(Owner->RemoveAttributeRecord(Inserted)) &&
+            Owner != File && !Allocated)
+        {
             (void)WriteFileRecordToMFT(Owner);
+        }
         if (Allocated && !OwnerReferenced)
             (void)DeallocateExtensionFileRecord(Allocated);
         delete Allocated;
@@ -609,9 +619,9 @@ MasterFileTable::InsertFileNameAttribute(
         delete Allocated;
         Owner = File->GetExtentRecord(OwnerReference);
         Inserted = Owner ? Owner->FindAttributeInRecord(TypeFileName, NULL, &AttributeId) : NULL;
-        if (!Inserted)
-            return STATUS_FILE_CORRUPT_ERROR;
     }
+    if (!Inserted)
+        return STATUS_FILE_CORRUPT_ERROR;
     *NewAttribute = Inserted;
     return STATUS_SUCCESS;
 }
@@ -625,7 +635,6 @@ MasterFileTable::LookupParentAndChild(
     _Out_ PWCHAR* Name,
     _Out_ PULONG NameLength)
 {
-    Directory ParentIndex(DiskVolume);
     NTSTATUS Status;
 
     *Child = NULL;
@@ -641,17 +650,41 @@ MasterFileTable::LookupParentAndChild(
     if (!NT_SUCCESS(Status))
         return Status;
 
-    Status = ParentIndex.FindNextFile(
+    Status = LookupChildInParent(
         *Parent,
         *Name,
+        Child,
         ChildReference);
     if (!NT_SUCCESS(Status))
-        goto Fail;
+    {
+        delete *Parent;
+        *Parent = NULL;
+    }
+    return Status;
+}
+
+NTSTATUS
+MasterFileTable::LookupChildInParent(
+    _In_ PFileRecord Parent,
+    _In_ PWCHAR Name,
+    _Out_ PFileRecord* Child,
+    _Out_ PULONGLONG ChildReference)
+{
+    Directory ParentIndex(DiskVolume);
+    NTSTATUS Status;
+
+    *Child = NULL;
+    *ChildReference = 0;
+    Status = ParentIndex.FindNextFile(
+        Parent,
+        Name,
+        ChildReference);
+    if (!NT_SUCCESS(Status))
+        return Status;
     if (GetFRNFromFileRef(*ChildReference) >
         MAXULONG)
     {
-        Status = STATUS_FILE_CORRUPT_ERROR;
-        goto Fail;
+        return STATUS_FILE_CORRUPT_ERROR;
     }
 
     Status = GetFileRecord(
@@ -659,7 +692,7 @@ MasterFileTable::LookupParentAndChild(
             *ChildReference),
         Child);
     if (!NT_SUCCESS(Status))
-        goto Fail;
+        return Status;
     if (!(*Child)->Header ||
         !((*Child)->Header->Flags &
           FR_IN_USE) ||
@@ -669,21 +702,17 @@ MasterFileTable::LookupParentAndChild(
                 *ChildReference))
     {
         Status = STATUS_FILE_CORRUPT_ERROR;
-        goto Fail;
     }
-    if ((*Child)->RecordNumber <=
-        NTFS_LAST_RESERVED_FILE_RECORD)
+    else if ((*Child)->RecordNumber <=
+             NTFS_LAST_RESERVED_FILE_RECORD)
     {
         Status = STATUS_ACCESS_DENIED;
-        goto Fail;
     }
-    return STATUS_SUCCESS;
-
-Fail:
-    delete *Child;
-    delete *Parent;
-    *Parent = NULL;
-    *Child = NULL;
+    if (!NT_SUCCESS(Status))
+    {
+        delete *Child;
+        *Child = NULL;
+    }
     return Status;
 }
 
@@ -949,20 +978,9 @@ MasterFileTable::DeleteFile(
 {
     PFileRecord Parent = NULL;
     PFileRecord Child = NULL;
-    PAttribute NameAttribute;
-    PAttribute AliasAttribute;
-    PFileNameEx NameValue;
-    PFileNameEx AliasValue;
     PWCHAR Name;
     ULONGLONG ChildReference;
-    ULONGLONG ParentReference;
     ULONG NameLength;
-    ULONG RemovedLinks;
-    UNICODE_STRING NameString;
-    WCHAR AliasName[
-        NTFS_MAX_FILE_NAME_LENGTH + 1];
-    UNICODE_STRING AliasString = {};
-    BOOLEAN IsDirectory;
     NTSTATUS Status;
 
     if (RecordDeleted)
@@ -981,6 +999,161 @@ MasterFileTable::DeleteFile(
         &NameLength);
     if (!NT_SUCCESS(Status))
         return Status;
+    Status = DeleteChild(
+        Parent,
+        Child,
+        ChildReference,
+        Name,
+        NameLength,
+        RemoveDirectory,
+        CanonicalRecord,
+        CanDeleteRecord,
+        RecordDeleted,
+        KeepUnlinkedRecord);
+    delete Child;
+    delete Parent;
+    return Status;
+}
+
+NTSTATUS
+MasterFileTable::DeleteFileInDirectory(
+    _Inout_ PFileRecord Parent,
+    _In_reads_(NameLength) PWCHAR Name,
+    _In_ ULONG NameLength,
+    _In_ BOOLEAN RemoveDirectory,
+    _In_opt_ PFileRecord CanonicalRecord,
+    _In_ BOOLEAN CanDeleteRecord,
+    _Out_opt_ PBOOLEAN RecordDeleted,
+    _In_ BOOLEAN KeepUnlinkedRecord)
+{
+    PFileRecord Child = NULL;
+    ULONGLONG ChildReference;
+    NTSTATUS Status;
+
+    if (RecordDeleted)
+        *RecordDeleted = FALSE;
+    if (!Parent || !Name || !DiskVolume ||
+        NameLength == 0 ||
+        NameLength > NTFS_MAX_FILE_NAME_LENGTH ||
+        Name[NameLength] != 0)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+    if (DiskVolume->IsReadOnly)
+        return STATUS_ACCESS_DENIED;
+    if (Parent->DiskVolume != DiskVolume ||
+        !Parent->Header ||
+        Parent->BaseRecordOwner ||
+        !(Parent->Header->Flags & FR_IN_USE))
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+    if (!(Parent->Header->Flags & FR_IS_DIRECTORY))
+        return STATUS_NOT_A_DIRECTORY;
+
+    Status = LookupChildInParent(
+        Parent,
+        Name,
+        &Child,
+        &ChildReference);
+    if (!NT_SUCCESS(Status))
+        return Status;
+    Status = DeleteChild(
+        Parent,
+        Child,
+        ChildReference,
+        Name,
+        NameLength,
+        RemoveDirectory,
+        CanonicalRecord,
+        CanDeleteRecord,
+        RecordDeleted,
+        KeepUnlinkedRecord);
+    delete Child;
+    return Status;
+}
+
+NTSTATUS
+MasterFileTable::DeleteLookedUpChild(
+    _Inout_ PFileRecord Parent,
+    _Inout_ PFileRecord Child,
+    _In_reads_(NameLength) PWCHAR Name,
+    _In_ ULONG NameLength,
+    _In_ BOOLEAN RemoveDirectory,
+    _In_opt_ PFileRecord CanonicalRecord,
+    _In_ BOOLEAN CanDeleteRecord,
+    _Out_opt_ PBOOLEAN RecordDeleted,
+    _In_ BOOLEAN KeepUnlinkedRecord)
+{
+    if (RecordDeleted)
+        *RecordDeleted = FALSE;
+    if (!Parent || !Child || !Name || !DiskVolume ||
+        NameLength == 0 ||
+        NameLength > NTFS_MAX_FILE_NAME_LENGTH ||
+        Name[NameLength] != 0)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+    if (DiskVolume->IsReadOnly)
+        return STATUS_ACCESS_DENIED;
+    if (Parent->DiskVolume != DiskVolume ||
+        !Parent->Header ||
+        Parent->BaseRecordOwner ||
+        !(Parent->Header->Flags & FR_IN_USE) ||
+        Child->DiskVolume != DiskVolume ||
+        Child == Parent ||
+        Child == CanonicalRecord ||
+        !Child->Header ||
+        Child->BaseRecordOwner ||
+        Child->Header->BaseFileRecord != 0 ||
+        !(Child->Header->Flags & FR_IN_USE))
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
+    if (!(Parent->Header->Flags & FR_IS_DIRECTORY))
+        return STATUS_NOT_A_DIRECTORY;
+    if (Child->RecordNumber <= NTFS_LAST_RESERVED_FILE_RECORD)
+        return STATUS_ACCESS_DENIED;
+    return DeleteChild(Parent,
+                       Child,
+                       MakeFileReference(Child),
+                       Name,
+                       NameLength,
+                       RemoveDirectory,
+                       CanonicalRecord,
+                       CanDeleteRecord,
+                       RecordDeleted,
+                       KeepUnlinkedRecord);
+}
+
+NTSTATUS
+MasterFileTable::DeleteChild(
+    _Inout_ PFileRecord Parent,
+    _Inout_ PFileRecord Child,
+    _In_ ULONGLONG ChildReference,
+    _In_reads_(NameLength) PWCHAR Name,
+    _In_ ULONG NameLength,
+    _In_ BOOLEAN RemoveDirectory,
+    _In_opt_ PFileRecord CanonicalRecord,
+    _In_ BOOLEAN CanDeleteRecord,
+    _Out_opt_ PBOOLEAN RecordDeleted,
+    _In_ BOOLEAN KeepUnlinkedRecord)
+{
+    PAttribute NameAttribute;
+    PAttribute AliasAttribute;
+    PFileNameEx NameValue;
+    PFileNameEx AliasValue;
+    ULONGLONG ParentReference;
+    ULONG RemovedLinks;
+    UNICODE_STRING NameString;
+    WCHAR AliasName[
+        NTFS_MAX_FILE_NAME_LENGTH + 1];
+    UNICODE_STRING AliasString = {};
+    BOOLEAN IsDirectory;
+    NTSTATUS Status;
+
+    ASSERT(Parent && Child && Name);
+    ASSERT(Child->RecordNumber == GetFRNFromFileRef(ChildReference));
     ParentReference =
         MakeFileReference(Parent);
 
@@ -993,7 +1166,7 @@ MasterFileTable::DeleteFile(
          CanonicalRecord->BaseRecordOwner || Child->BaseRecordOwner))
     {
         Status = STATUS_INVALID_PARAMETER;
-        goto Done;
+        return Status;
     }
 
     IsDirectory =
@@ -1004,7 +1177,7 @@ MasterFileTable::DeleteFile(
         Status = IsDirectory
             ? STATUS_FILE_IS_A_DIRECTORY
             : STATUS_NOT_A_DIRECTORY;
-        goto Done;
+        return Status;
     }
     if (IsDirectory)
     {
@@ -1014,7 +1187,7 @@ MasterFileTable::DeleteFile(
         Status = Enumerator.LoadDirectory(
             Child);
         if (!NT_SUCCESS(Status))
-            goto Done;
+            return Status;
         Status = Enumerator.GetNextEntry(
             TRUE,
             &Entry);
@@ -1022,10 +1195,10 @@ MasterFileTable::DeleteFile(
         {
             Status =
                 STATUS_DIRECTORY_NOT_EMPTY;
-            goto Done;
+            return Status;
         }
         if (Status != STATUS_NO_MORE_FILES)
-            goto Done;
+            return Status;
     }
 
     NameString = NtfsMakeCountedUnicodeString(
@@ -1040,7 +1213,7 @@ MasterFileTable::DeleteFile(
         &AliasAttribute,
         &AliasValue);
     if (!NT_SUCCESS(Status))
-        goto Done;
+        return Status;
     RemovedLinks = 1;
     if (AliasAttribute)
     {
@@ -1052,7 +1225,7 @@ MasterFileTable::DeleteFile(
         !KeepUnlinkedRecord)
     {
         Status = STATUS_INVALID_DEVICE_STATE;
-        goto Done;
+        return Status;
     }
 
     {
@@ -1064,7 +1237,7 @@ MasterFileTable::DeleteFile(
                 ChildReference,
                 &NameString);
         if (!NT_SUCCESS(Status))
-            goto Done;
+            return Status;
         if (AliasAttribute)
         {
             Status =
@@ -1074,7 +1247,7 @@ MasterFileTable::DeleteFile(
                         ChildReference,
                         &AliasString);
             if (!NT_SUCCESS(Status))
-                goto Done;
+                return Status;
         }
     }
 
@@ -1087,7 +1260,7 @@ MasterFileTable::DeleteFile(
             ParentReference,
             &NameString);
         if (!NT_SUCCESS(Status))
-            goto Done;
+            return Status;
         Child->Header->HardLinkCount =
             Child->Header->HardLinkCount > RemovedLinks
                 ? (USHORT)(
@@ -1096,11 +1269,11 @@ MasterFileTable::DeleteFile(
                 : 0;
         Status = Child->StampChangeTime();
         if (!NT_SUCCESS(Status))
-            goto Done;
+            return Status;
         Status = WriteFileRecordToMFT(Child);
         if (NT_SUCCESS(Status) && CanonicalRecord)
             Status = CanonicalRecord->RefreshFrom(*Child);
-        goto Done;
+        return Status;
     }
 
     /*
@@ -1108,15 +1281,10 @@ MasterFileTable::DeleteFile(
      * captured while the records are still alive, records are blanked
      * next, and only then do the clusters return to $Bitmap.
      */
-    Status = ReleaseFileRecordSet(
+    return ReleaseFileRecordSet(
         Child,
         ChildReference,
         RecordDeleted);
-
-Done:
-    delete Child;
-    delete Parent;
-    return Status;
 }
 
 NTSTATUS
@@ -1824,6 +1992,11 @@ MasterFileTable::RenameFile(
     {
         WantAlias = FALSE;
         Status = EnsureFileNameSpace(Child, NewNameLength, OldParent, NewParent);
+    }
+    if (Status == STATUS_BUFFER_TOO_SMALL &&
+        !Child->FindAttributeInRecord(TypeAttributeList, NULL, NULL))
+    {
+        Status = Child->CreateInitialAttributeList();
     }
     if (!NT_SUCCESS(Status))
         goto Done;

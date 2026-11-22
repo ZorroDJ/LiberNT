@@ -231,6 +231,12 @@ NtfsApplyFixup(_Inout_ PNTFSRecordHeader Header,
                _In_ ULONG RecordSize,
                _In_ ULONG BytesPerSector);
 
+BOOLEAN
+NtfsGetFixupStride(_In_ ULONG UpdateSequenceCount,
+                   _In_ ULONG RecordSize,
+                   _In_ ULONG BytesPerSector,
+                   _Out_ PULONG Stride);
+
 NTSTATUS
 NtfsCommitFixup(_Inout_ PNTFSRecordHeader Header,
                 _In_ ULONG RecordSize,
@@ -566,6 +572,8 @@ public:
     BOOLEAN IsReadOnly = FALSE;
     BOOLEAN ShowMetadataFiles = FALSE;
     BOOLEAN Generate8dot3Names = FALSE;
+    /* Zero until $MFT record 0 is read; new records follow it. */
+    ULONG FixupStride = 0;
 
     /*
      * Where to begin the free-cluster search. Without it every allocation
@@ -952,6 +960,13 @@ BOOLEAN
 ValidateSecurityDescriptor(_In_ const UCHAR* Descriptor,
                            _In_ ULONG DescriptorLength);
 
+/* Windows records a resident stream's allocation as its length rounded up to 8. */
+inline ULONGLONG
+NtfsResidentAllocatedSize(_In_ ULONGLONG DataLength)
+{
+    return (DataLength + 7) & ~(ULONGLONG)7;
+}
+
 typedef class FileRecord
 {
 public:
@@ -1015,6 +1030,11 @@ public:
         _In_reads_(UpdateCount)
             const NtfsExtendedAttributeUpdate* Updates,
         _In_ ULONG UpdateCount);
+    NTSTATUS InitializeExtendedAttributes(
+        _In_reads_(UpdateCount)
+            const NtfsExtendedAttributeUpdate* Updates,
+        _In_ ULONG UpdateCount,
+        _Out_ PULONG EaInformation);
     NTSTATUS
     SetSecurityDescriptor(
         _In_reads_bytes_(BufferLength) const UCHAR* Buffer,
@@ -1064,6 +1084,12 @@ public:
 
     NTSTATUS
     UpdateAutomaticTimestamps(_In_ UINT32 Fields);
+
+    NTSTATUS
+    DeferFileNameUpdates(_In_ BOOLEAN Defer);
+
+    NTSTATUS
+    FlushFileNameUpdates();
 
     NTSTATUS
     TouchDirectory();
@@ -1186,6 +1212,13 @@ private:
     ULONG AttributeListLength = 0;
     UINT32 AutomaticTimestampMask =
         NTFS_AUTOMATIC_TIMESTAMP_FIELDS;
+    BOOLEAN FileNameUpdatesDeferred = FALSE;
+    UINT32 PendingFileNameFields = 0;
+    ULONGLONG PendingAllocatedSize = 0;
+    ULONGLONG PendingDataSize = 0;
+    ULONG PendingEaInformation = 0;
+    ULONG PendingReparseTag = 0;
+    ULONG PendingStorageFlags = 0;
     UCHAR WofProbeState = 0; /* 0 unknown, 1 absent/non-file, 2 present */
     ULONG WofAlgorithm = 0;
     ULONG WofChunkSize = 0;
@@ -1741,6 +1774,16 @@ private:
         _In_ ULONG RecordSize,
         _In_ ULONGLONG AllocationUnit);
 
+    static NTSTATUS
+    PlaceIndexAllocationInExtension(
+        _In_ PVolume DiskVolume,
+        _In_ PFileRecord DirectoryFile,
+        _In_ PCWSTR IndexName,
+        _In_ PUCHAR Image,
+        _In_ ULONG RecordSize,
+        _In_reads_bytes_(RootValueLength) PUCHAR RootValue,
+        _In_ ULONG RootValueLength);
+
     NTSTATUS
     ReleaseEmptyIndexNode(
         _In_ PFileRecord DirectoryFile,
@@ -1935,7 +1978,9 @@ public:
         _In_opt_ PCWSTR PreferredShortName = NULL,
         _In_ ULONG PreferredShortNameLength = 0,
         _In_opt_ const UCHAR* SecurityDescriptor = NULL,
-        _In_ ULONG SecurityDescriptorLength = 0);
+        _In_ ULONG SecurityDescriptorLength = 0,
+        _In_reads_opt_(EaCount) const NtfsExtendedAttributeUpdate* Eas = NULL,
+        _In_ ULONG EaCount = 0);
 
     // ./namespace.cpp
     NTSTATUS
@@ -1946,6 +1991,29 @@ public:
         _In_ BOOLEAN CanDeleteRecord = TRUE,
         _Out_opt_ PBOOLEAN RecordDeleted = NULL,
         _In_ BOOLEAN KeepUnlinkedRecord = FALSE);
+
+    NTSTATUS
+    DeleteFileInDirectory(
+        _Inout_ PFileRecord Parent,
+        _In_reads_(NameLength) PWCHAR Name,
+        _In_ ULONG NameLength,
+        _In_ BOOLEAN RemoveDirectory,
+        _In_opt_ PFileRecord CanonicalRecord,
+        _In_ BOOLEAN CanDeleteRecord,
+        _Out_opt_ PBOOLEAN RecordDeleted,
+        _In_ BOOLEAN KeepUnlinkedRecord);
+
+    NTSTATUS
+    DeleteLookedUpChild(
+        _Inout_ PFileRecord Parent,
+        _Inout_ PFileRecord Child,
+        _In_reads_(NameLength) PWCHAR Name,
+        _In_ ULONG NameLength,
+        _In_ BOOLEAN RemoveDirectory,
+        _In_opt_ PFileRecord CanonicalRecord,
+        _In_ BOOLEAN CanDeleteRecord,
+        _Out_opt_ PBOOLEAN RecordDeleted,
+        _In_ BOOLEAN KeepUnlinkedRecord);
 
     NTSTATUS
     DeleteUnlinkedFile(
@@ -2030,6 +2098,26 @@ private:
         _Out_ PULONGLONG ChildReference,
         _Out_ PWCHAR* Name,
         _Out_ PULONG NameLength);
+
+    NTSTATUS
+    LookupChildInParent(
+        _In_ PFileRecord Parent,
+        _In_ PWCHAR Name,
+        _Out_ PFileRecord* Child,
+        _Out_ PULONGLONG ChildReference);
+
+    NTSTATUS
+    DeleteChild(
+        _Inout_ PFileRecord Parent,
+        _Inout_ PFileRecord Child,
+        _In_ ULONGLONG ChildReference,
+        _In_reads_(NameLength) PWCHAR Name,
+        _In_ ULONG NameLength,
+        _In_ BOOLEAN RemoveDirectory,
+        _In_opt_ PFileRecord CanonicalRecord,
+        _In_ BOOLEAN CanDeleteRecord,
+        _Out_opt_ PBOOLEAN RecordDeleted,
+        _In_ BOOLEAN KeepUnlinkedRecord);
 
     NTSTATUS
     SplitAndResolveParent(

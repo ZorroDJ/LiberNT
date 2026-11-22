@@ -45,6 +45,10 @@
 #define GPT_MAX_ENTRY_BYTES   32768
 
 #define NTFS_FILE_MAGIC       0x454C4946
+#ifndef EXPAND_VOLUME_ONLY
+#define NTFS_RECORD_MFTMIRR   1
+#define NTFS_RECORD_LOGFILE   2
+#endif
 #define NTFS_RECORD_BITMAP    6
 #define NTFS_RECORD_BADCLUS   8
 
@@ -195,6 +199,8 @@ typedef struct _NTFS_CONTEXT
     NTFS_WORKSPACE* Work;
     uint64_t PartitionStart;
     uint64_t MftLcn;
+    uint64_t MftMirrLcn;
+    uint32_t MirrorRecords;
     uint64_t OldClusters;
     uint64_t NewClusters;
     uint32_t BytesPerSector;
@@ -249,31 +255,49 @@ IsPowerOfTwo(uint64_t Value)
     return Value != 0 && (Value & (Value - 1)) == 0;
 }
 
-static int
-ValidateFixup(const NTFS_RECORD_HEADER* Header, uint32_t RecordSize, uint32_t BytesPerSector)
-{
-    uint32_t UsaSize = (uint32_t)Header->SizeOfUpdateSequence * 2;
+/* Records on large sectors may use a 512-byte update-sequence stride. */
+#define MINIMUM_FIXUP_STRIDE 512u
 
-    return !(RecordSize < BytesPerSector ||
-             (RecordSize % BytesPerSector) != 0 ||
-             Header->SizeOfUpdateSequence != RecordSize / BytesPerSector + 1 ||
-             Header->UpdateSequenceOffset > RecordSize ||
-             UsaSize > RecordSize - Header->UpdateSequenceOffset);
+static uint32_t
+FixupStride(const NTFS_RECORD_HEADER* Header, uint32_t RecordSize, uint32_t BytesPerSector)
+{
+    uint32_t Count = Header->SizeOfUpdateSequence;
+    uint32_t UsaSize = Count * 2;
+    uint32_t Stride;
+
+    if (Count < 2 ||
+        RecordSize < BytesPerSector ||
+        (RecordSize % BytesPerSector) != 0 ||
+        Header->UpdateSequenceOffset > RecordSize ||
+        UsaSize > RecordSize - Header->UpdateSequenceOffset)
+    {
+        return 0;
+    }
+    Stride = RecordSize / (Count - 1);
+    if (Stride * (Count - 1) != RecordSize ||
+        Stride < MINIMUM_FIXUP_STRIDE ||
+        Stride > BytesPerSector ||
+        !IsPowerOfTwo(Stride))
+    {
+        return 0;
+    }
+    return Stride;
 }
 
 static int
 ApplyFixup(uint8_t* Record, uint32_t RecordSize, uint32_t BytesPerSector)
 {
     NTFS_RECORD_HEADER* Header = (NTFS_RECORD_HEADER*)Record;
+    uint32_t Stride = FixupStride(Header, RecordSize, BytesPerSector);
     uint16_t* Usa;
     uint8_t* SectorTail;
     uint32_t Index;
 
-    if (!ValidateFixup(Header, RecordSize, BytesPerSector))
+    if (Stride == 0)
         return 0;
 
     Usa = (uint16_t*)(Record + Header->UpdateSequenceOffset);
-    SectorTail = Record + BytesPerSector - 2;
+    SectorTail = Record + Stride - 2;
 
     for (Index = 1; Index < Header->SizeOfUpdateSequence; Index++)
     {
@@ -283,7 +307,7 @@ ApplyFixup(uint8_t* Record, uint32_t RecordSize, uint32_t BytesPerSector)
         if (Stamped != Usa[0])
             return 0;
         memcpy(SectorTail, &Usa[Index], 2);
-        SectorTail += BytesPerSector;
+        SectorTail += Stride;
     }
 
     return 1;
@@ -293,15 +317,16 @@ static int
 CommitFixup(uint8_t* Record, uint32_t RecordSize, uint32_t BytesPerSector)
 {
     NTFS_RECORD_HEADER* Header = (NTFS_RECORD_HEADER*)Record;
+    uint32_t Stride = FixupStride(Header, RecordSize, BytesPerSector);
     uint16_t* Usa;
     uint8_t* SectorTail;
     uint32_t Index;
 
-    if (!ValidateFixup(Header, RecordSize, BytesPerSector))
+    if (Stride == 0)
         return 0;
 
     Usa = (uint16_t*)(Record + Header->UpdateSequenceOffset);
-    SectorTail = Record + BytesPerSector - 2;
+    SectorTail = Record + Stride - 2;
 
     Usa[0]++;
     if (Usa[0] == 0)
@@ -311,7 +336,7 @@ CommitFixup(uint8_t* Record, uint32_t RecordSize, uint32_t BytesPerSector)
     {
         memcpy(&Usa[Index], SectorTail, 2);
         memcpy(SectorTail, &Usa[0], 2);
-        SectorTail += BytesPerSector;
+        SectorTail += Stride;
     }
 
     return 1;
@@ -518,6 +543,15 @@ WriteRecord(NTFS_CONTEXT* Context, uint32_t Number, uint8_t* Record)
 
     if (!Context->Device->Write(Context->Device->Context, Offset, Context->RecordSize, Record))
         return EXPAND_IO_ERROR;
+
+    if (Number < Context->MirrorRecords)
+    {
+        Offset = Context->PartitionStart +
+                 Context->MftMirrLcn * Context->ClusterSize +
+                 (uint64_t)Number * Context->RecordSize;
+        if (!Context->Device->Write(Context->Device->Context, Offset, Context->RecordSize, Record))
+            return EXPAND_IO_ERROR;
+    }
 
     return EXPAND_OK;
 }
@@ -984,6 +1018,27 @@ GptApplyPlan(EXPAND_DEVICE* Device, const EXPAND_PLAN* Plan)
                        Bytes, Entries))
     {
         return EXPAND_IO_ERROR;
+    }
+
+    /* The protective MBR entry spans the disk after LBA 0, capped at 32 bits (UEFI). */
+    if (ReadMbr(Device, Sector) == EXPAND_OK)
+    {
+        uint32_t Count = DiskSectors - 1 > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)(DiskSectors - 1);
+        uint32_t Index;
+
+        for (Index = 0; Index < 4; Index++)
+        {
+            MBR_ENTRY Protective;
+
+            memcpy(&Protective, Sector + 446 + Index * sizeof(MBR_ENTRY), sizeof(Protective));
+            if (Protective.Type != 0xEE || Protective.StartLba != 1 || Protective.SectorCount == Count)
+                continue;
+            Protective.SectorCount = Count;
+            memcpy(Sector + 446 + Index * sizeof(MBR_ENTRY), &Protective, sizeof(Protective));
+            if (!Device->Write(Device->Context, 0, Device->SectorSize, Sector))
+                return EXPAND_IO_ERROR;
+            break;
+        }
     }
     memset(Sector, 0, Device->SectorSize);
     memcpy(Sector, &Primary, sizeof(Primary));
@@ -1590,6 +1645,11 @@ LocateRecords(NTFS_CONTEXT* Context, const NTFS_BOOT_SECTOR* BootSector)
     }
 
     Context->MftLcn = BootSector->MftLcn;
+    Context->MftMirrLcn = BootSector->MftMirrLcn;
+    /* $MFTMirr holds one cluster of records, and never fewer than four. */
+    Context->MirrorRecords = Context->ClusterSize > 4 * Context->RecordSize
+        ? Context->ClusterSize / Context->RecordSize
+        : 4;
     return EXPAND_OK;
 }
 
@@ -1659,6 +1719,13 @@ ExpandGrowVolume(EXPAND_DEVICE* Device,
         return EXPAND_BAD_PARAMETER;
     if (Context.NewClusters == Context.OldClusters)
         return EXPAND_NOTHING_TO_DO;
+    /* The backup boot sector goes in the sector after the volume. */
+    if (Device->DiskSize != 0 &&
+        (NewVolumeSectors + 1 > (Device->DiskSize - VolumeStart) / Context.BytesPerSector ||
+         VolumeStart > Device->DiskSize))
+    {
+        return EXPAND_BAD_PARAMETER;
+    }
 
     Status = LocateRecords(&Context, BootSector);
     if (Status != EXPAND_OK)
@@ -1674,6 +1741,232 @@ ExpandGrowVolume(EXPAND_DEVICE* Device,
 
     return WriteBootSectors(&Context, NewVolumeSectors);
 }
+
+#ifndef EXPAND_VOLUME_ONLY
+/* Offline only: a mounted volume must not see these files move. */
+static int
+UpdateBitmapRange(NTFS_CONTEXT* Context,
+                  const NTFS_RUN* BitmapRuns,
+                  uint32_t BitmapRunCount,
+                  uint64_t Lcn,
+                  uint64_t Count,
+                  int Allocate)
+{
+    uint8_t* Chunk = Context->Work->Chunk;
+
+    while (Count != 0)
+    {
+        uint64_t FirstByte = Lcn / 8;
+        uint64_t LastByte = (Lcn + Count - 1) / 8;
+        uint32_t Length = (uint32_t)(LastByte - FirstByte + 1 < BITMAP_CHUNK
+                                         ? LastByte - FirstByte + 1
+                                         : BITMAP_CHUNK);
+        uint64_t Covered = (FirstByte + Length) * 8 - Lcn;
+        uint64_t Cluster;
+        int Status;
+
+        if (Covered > Count)
+            Covered = Count;
+        Status = RunsTransfer(Context, BitmapRuns, BitmapRunCount, FirstByte, Length, Chunk, 0);
+        if (Status != EXPAND_OK)
+            return Status;
+        for (Cluster = Lcn; Cluster < Lcn + Covered; Cluster++)
+        {
+            uint8_t Mask = (uint8_t)(1u << (Cluster & 7));
+            uint8_t* Byte = &Chunk[Cluster / 8 - FirstByte];
+
+            *Byte = Allocate ? (uint8_t)(*Byte | Mask) : (uint8_t)(*Byte & ~Mask);
+        }
+        Status = RunsTransfer(Context, BitmapRuns, BitmapRunCount, FirstByte, Length, Chunk, 1);
+        if (Status != EXPAND_OK)
+            return Status;
+        Lcn += Covered;
+        Count -= Covered;
+    }
+    return EXPAND_OK;
+}
+
+static int
+ReadBitmapRuns(NTFS_CONTEXT* Context, uint8_t* Record, NTFS_RUN* Runs, uint32_t* RunCount)
+{
+    NTFS_ATTRIBUTE* Attribute;
+    int Status = ReadRecord(Context, NTFS_RECORD_BITMAP, Record);
+
+    if (Status != EXPAND_OK)
+        return Status;
+    Attribute = FindAttribute(Record, Context->RecordSize, ATTR_TYPE_DATA, NULL, 0);
+    if (!Attribute || !Attribute->IsNonResident || Attribute->FirstVcn != 0 ||
+        !DecodeRuns((uint8_t*)Attribute + Attribute->DataRunsOffset,
+                    (uint8_t*)Attribute + Attribute->Length,
+                    Runs,
+                    MAX_RUNS,
+                    RunCount) ||
+        *RunCount == 0)
+    {
+        return EXPAND_CORRUPT;
+    }
+    return EXPAND_OK;
+}
+
+/* The copy is in use before the record switches to it; the old clusters go last. */
+static int
+RelocateSystemFile(NTFS_CONTEXT* Context, uint32_t RecordNumber)
+{
+    NTFS_RUN FileRuns[MAX_RUNS];
+    NTFS_RUN* BitmapRuns = Context->Work->Runs;
+    uint8_t* Record = Context->Work->Staged;
+    uint8_t* Chunk = Context->Work->Chunk;
+    NTFS_ATTRIBUTE* Attribute;
+    NTFS_RUN NewRun;
+    uint32_t FileRunCount = 0;
+    uint32_t BitmapRunCount = 0;
+    uint64_t Clusters = 0;
+    uint64_t NewLcn;
+    uint64_t Offset;
+    uint64_t Bytes;
+    uint32_t Index;
+    int Beyond = 0;
+    int Status;
+
+    Status = ReadRecord(Context, RecordNumber, Record);
+    if (Status != EXPAND_OK)
+        return Status;
+    Attribute = FindAttribute(Record, Context->RecordSize, ATTR_TYPE_DATA, NULL, 0);
+    if (!Attribute || !Attribute->IsNonResident || Attribute->FirstVcn != 0 ||
+        (Attribute->Flags & (ATTR_COMPRESSION_MASK | ATTR_ENCRYPTED | ATTR_SPARSE)) != 0 ||
+        !DecodeRuns((uint8_t*)Attribute + Attribute->DataRunsOffset,
+                    (uint8_t*)Attribute + Attribute->Length,
+                    FileRuns,
+                    MAX_RUNS,
+                    &FileRunCount) ||
+        FileRunCount == 0)
+    {
+        return EXPAND_CORRUPT;
+    }
+    for (Index = 0; Index < FileRunCount; Index++)
+    {
+        if (FileRuns[Index].Sparse)
+            return EXPAND_CORRUPT;
+        if (FileRuns[Index].Lcn + FileRuns[Index].Length > Context->NewClusters)
+            Beyond = 1;
+        Clusters += FileRuns[Index].Length;
+    }
+    if (!Beyond)
+        return EXPAND_OK;
+    if (Clusters != Attribute->AllocatedSize / Context->ClusterSize)
+        return EXPAND_CORRUPT;
+
+    Status = ReadBitmapRuns(Context, Context->Work->Record, BitmapRuns, &BitmapRunCount);
+    if (Status != EXPAND_OK)
+        return Status;
+    Status = FindLowFreeRun(Context, BitmapRuns, BitmapRunCount, Clusters, &NewLcn);
+    if (Status != EXPAND_OK)
+        return Status;
+    if (NewLcn + Clusters > Context->NewClusters)
+        return EXPAND_NO_ROOM;
+
+    Bytes = Clusters * Context->ClusterSize;
+    NewRun.Lcn = NewLcn;
+    NewRun.Length = Clusters;
+    NewRun.Sparse = 0;
+    for (Offset = 0; Offset < Bytes; Offset += BITMAP_CHUNK)
+    {
+        uint32_t Length = (uint32_t)(Bytes - Offset < BITMAP_CHUNK ? Bytes - Offset : BITMAP_CHUNK);
+
+        Status = RunsTransfer(Context, FileRuns, FileRunCount, Offset, Length, Chunk, 0);
+        if (Status == EXPAND_OK)
+            Status = RunsTransfer(Context, &NewRun, 1, Offset, Length, Chunk, 1);
+        if (Status != EXPAND_OK)
+            return Status;
+    }
+    Status = UpdateBitmapRange(Context, BitmapRuns, BitmapRunCount, NewLcn, Clusters, 1);
+    if (Status != EXPAND_OK)
+        return Status;
+
+    Status = ReadRecord(Context, RecordNumber, Record);
+    if (Status != EXPAND_OK)
+        return Status;
+    Attribute = FindAttribute(Record, Context->RecordSize, ATTR_TYPE_DATA, NULL, 0);
+    if (!Attribute)
+        return EXPAND_CORRUPT;
+    Status = ReplaceRuns(Context, Record, Attribute, &NewRun, 1, Attribute->LastVcn,
+                         Attribute->AllocatedSize, Attribute->DataSize, Attribute->InitializedSize);
+    if (Status != EXPAND_OK)
+        return Status;
+    if (RecordNumber == NTFS_RECORD_MFTMIRR)
+    {
+        NTFS_BOOT_SECTOR* Boot = (NTFS_BOOT_SECTOR*)Context->Work->Boot;
+
+        Context->MftMirrLcn = NewLcn;
+        Boot->MftMirrLcn = NewLcn;
+        if (!Context->Device->Write(Context->Device->Context,
+                                    Context->PartitionStart + Boot->SectorsInVolume * Context->BytesPerSector,
+                                    Context->BytesPerSector,
+                                    Context->Work->Boot) ||
+            !Context->Device->Write(Context->Device->Context,
+                                    Context->PartitionStart,
+                                    Context->BytesPerSector,
+                                    Context->Work->Boot))
+        {
+            return EXPAND_IO_ERROR;
+        }
+    }
+    Status = WriteRecord(Context, RecordNumber, Record);
+    if (Status != EXPAND_OK)
+        return Status;
+
+    for (Index = 0; Index < FileRunCount; Index++)
+    {
+        Status = UpdateBitmapRange(Context, BitmapRuns, BitmapRunCount,
+                                   FileRuns[Index].Lcn, FileRuns[Index].Length, 0);
+        if (Status != EXPAND_OK)
+            return Status;
+    }
+    Report(Context->Device, "moved record %lu to cluster %llu (%llu clusters)\n",
+           (unsigned long)RecordNumber, (unsigned long long)NewLcn, (unsigned long long)Clusters);
+    return EXPAND_OK;
+}
+
+/* The shrink may drop only clusters $Bitmap shows free. */
+static int
+CheckTailFree(NTFS_CONTEXT* Context)
+{
+    NTFS_RUN* BitmapRuns = Context->Work->Runs;
+    uint8_t* Chunk = Context->Work->Chunk;
+    uint32_t BitmapRunCount = 0;
+    uint64_t Cluster = Context->NewClusters;
+    int Status;
+
+    Status = ReadBitmapRuns(Context, Context->Work->Record, BitmapRuns, &BitmapRunCount);
+    if (Status != EXPAND_OK)
+        return Status;
+    while (Cluster < Context->OldClusters)
+    {
+        uint64_t FirstByte = Cluster / 8;
+        uint64_t LastByte = (Context->OldClusters - 1) / 8;
+        uint32_t Length = (uint32_t)(LastByte - FirstByte + 1 < BITMAP_CHUNK
+                                         ? LastByte - FirstByte + 1
+                                         : BITMAP_CHUNK);
+        uint64_t End = (FirstByte + Length) * 8;
+
+        if (End > Context->OldClusters)
+            End = Context->OldClusters;
+        Status = RunsTransfer(Context, BitmapRuns, BitmapRunCount, FirstByte, Length, Chunk, 0);
+        if (Status != EXPAND_OK)
+            return Status;
+        for (; Cluster < End; Cluster++)
+        {
+            if (Chunk[Cluster / 8 - FirstByte] & (1u << (Cluster & 7)))
+            {
+                Report(Context->Device, "cluster %llu beyond the new end is in use\n",
+                       (unsigned long long)Cluster);
+                return EXPAND_NO_ROOM;
+            }
+        }
+    }
+    return EXPAND_OK;
+}
+#endif
 
 static int
 PrepareShrinkBitmap(NTFS_CONTEXT* Context, uint8_t* Record, uint32_t* RunCount)
@@ -1871,6 +2164,16 @@ ExpandShrinkVolume(EXPAND_DEVICE* Device,
     Status = LocateRecords(&Context, BootSector);
     if (Status != EXPAND_OK)
         return Status;
+
+#ifndef EXPAND_VOLUME_ONLY
+    Status = RelocateSystemFile(&Context, NTFS_RECORD_LOGFILE);
+    if (Status == EXPAND_OK)
+        Status = RelocateSystemFile(&Context, NTFS_RECORD_MFTMIRR);
+    if (Status == EXPAND_OK)
+        Status = CheckTailFree(&Context);
+    if (Status != EXPAND_OK)
+        return Status;
+#endif
 
     Status = PrepareShrinkBadClusters(&Context, Context.Work->Staged);
     if (Status != EXPAND_OK)

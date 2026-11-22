@@ -586,12 +586,92 @@ FileRecord::SynchronizeFileNameInformation(
     {
         return STATUS_FILE_CORRUPT_ERROR;
     }
+    if (Header->BaseFileRecord != 0)
+    {
+        /* An extension record holds no names; its base record carries them. */
+        ASSERT(BaseRecordOwner);
+        return BaseRecordOwner
+            ? BaseRecordOwner->SynchronizeFileNameInformation(Fields,
+                                                              AllocatedSize,
+                                                              DataSize,
+                                                              EaInformation,
+                                                              ReparseTag,
+                                                              StorageFlags)
+            : STATUS_SUCCESS;
+    }
+    if (FileNameUpdatesDeferred)
+    {
+        if (Fields & NTFS_FILE_NAME_UPDATE_SIZES)
+        {
+            PendingAllocatedSize = AllocatedSize;
+            PendingDataSize = DataSize;
+        }
+        if (Fields & (NTFS_FILE_NAME_UPDATE_EA_SIZE | NTFS_FILE_NAME_UPDATE_REPARSE_TAG))
+            PendingEaInformation = EaInformation;
+        if (Fields & NTFS_FILE_NAME_UPDATE_REPARSE_TAG)
+            PendingReparseTag = ReparseTag;
+        if (Fields & NTFS_FILE_NAME_UPDATE_STORAGE_FLAGS)
+            PendingStorageFlags = StorageFlags;
+        PendingFileNameFields |= Fields;
+        return STATUS_SUCCESS;
+    }
 
     FileReference =
         ((ULONGLONG)Header->SequenceNumber << 48) |
         RecordNumber;
-    Offset = Header->AttributeOffset;
 
+    /* Names in extension records are listed; every name's parent entry carries the copy. */
+    if (FindAttributeInRecord(TypeAttributeList, NULL, NULL))
+    {
+        ULONG ListOffset = 0;
+
+        for (;;)
+        {
+            PAttribute Attribute = NULL;
+            PFileNameEx FileName;
+
+            Status = FindNextAttributeFromList(TypeFileName, &ListOffset, &Attribute);
+            if (!NT_SUCCESS(Status))
+                return Status;
+            if (!Attribute)
+                break;
+            if (Attribute->IsNonResident ||
+                Attribute->Resident.DataOffset < 0x18 ||
+                Attribute->Resident.DataOffset > Attribute->Length ||
+                Attribute->Resident.DataLength < FIELD_OFFSET(FileNameEx, Name) ||
+                Attribute->Resident.DataLength >
+                    Attribute->Length - Attribute->Resident.DataOffset)
+            {
+                return STATUS_FILE_CORRUPT_ERROR;
+            }
+            FileName = reinterpret_cast<PFileNameEx>(GetResidentDataPointer(Attribute));
+            if (FileName->NameLength * sizeof(WCHAR) >
+                Attribute->Resident.DataLength - FIELD_OFFSET(FileNameEx, Name))
+            {
+                return STATUS_FILE_CORRUPT_ERROR;
+            }
+            if (Fields & NTFS_FILE_NAME_UPDATE_BASIC)
+                ApplyBasicInformationToFileName(FileName);
+            Status = UpdateParentIndexEntry(FileName,
+                                            FileReference,
+                                            Fields,
+                                            AllocatedSize,
+                                            DataSize,
+                                            EaInformation,
+                                            ReparseTag,
+                                            StorageFlags);
+            if (!NT_SUCCESS(Status))
+                return Status;
+        }
+        return UpdateFileNameInformation(Fields,
+                                         AllocatedSize,
+                                         DataSize,
+                                         EaInformation,
+                                         ReparseTag,
+                                         StorageFlags);
+    }
+
+    Offset = Header->AttributeOffset;
     while (Offset < Header->ActualSize)
     {
         PAttribute Attribute;
@@ -668,4 +748,57 @@ FileRecord::SynchronizeFileNameInformation(
         EaInformation,
         ReparseTag,
         StorageFlags);
+}
+
+NTSTATUS
+FileRecord::DeferFileNameUpdates(
+    _In_ BOOLEAN Defer)
+{
+    if (!Header || Header->BaseFileRecord != 0 || !DiskVolume)
+        return STATUS_INVALID_PARAMETER;
+    if (Defer)
+    {
+        FileNameUpdatesDeferred = TRUE;
+        return STATUS_SUCCESS;
+    }
+    FileNameUpdatesDeferred = FALSE;
+    return FlushFileNameUpdates();
+}
+
+NTSTATUS
+FileRecord::FlushFileNameUpdates()
+{
+    const UINT32 FlagFields = NTFS_FILE_NAME_UPDATE_ARCHIVE |
+                              NTFS_FILE_NAME_UPDATE_REPARSE_TAG |
+                              NTFS_FILE_NAME_UPDATE_STORAGE_FLAGS;
+    UINT32 Fields = PendingFileNameFields;
+    BOOLEAN Deferred = FileNameUpdatesDeferred;
+    NTSTATUS Status = STATUS_SUCCESS;
+
+    ASSERT(Fields == 0 || (Header && Header->BaseFileRecord == 0));
+    ASSERT((Fields & ~NTFS_FILE_NAME_UPDATE_ALL) == 0);
+    if (Fields == 0)
+        return STATUS_SUCCESS;
+    PendingFileNameFields = 0;
+    FileNameUpdatesDeferred = FALSE;
+    /* The basic copy rewrites the entry flags, so flag changes follow it. */
+    if ((Fields & NTFS_FILE_NAME_UPDATE_BASIC) && (Fields & FlagFields))
+    {
+        Status = SynchronizeFileNameInformation(NTFS_FILE_NAME_UPDATE_BASIC, 0, 0, 0, 0, 0);
+        Fields &= ~NTFS_FILE_NAME_UPDATE_BASIC;
+    }
+    if (NT_SUCCESS(Status))
+    {
+        Status = SynchronizeFileNameInformation(Fields,
+                                                PendingAllocatedSize,
+                                                PendingDataSize,
+                                                PendingEaInformation,
+                                                PendingReparseTag,
+                                                PendingStorageFlags);
+    }
+    if (NT_SUCCESS(Status))
+        Status = DiskVolume->MFT->WriteFileRecordToMFT(this);
+    FileNameUpdatesDeferred = Deferred;
+    ASSERT(PendingFileNameFields == 0);
+    return Status;
 }
