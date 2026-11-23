@@ -7,7 +7,7 @@
 = Latest news  =
 
 * I now run my fork on my laptop, and I'm checking out the main LibreNT every day
-* I already found two big bugs: one on MTU of IP interfaces, another on polling of Tablet
+* I already found two big bugs: one on MTU of IP interfaces, [another on polling of Tablet](https://github.com/LiberNT/LiberNT/issues/725)
 * If you have an Intel laptop of circa 2018-2023 check it out (you can download the ISO and update the fork automatically)
 
 = ZorroDJ LibreNT & ZUFUS  =
