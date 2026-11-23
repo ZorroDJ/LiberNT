@@ -1,4 +1,4 @@
-# Fork automation
+# Fork CI automation
 
 - **Sync upstream** runs daily at **03:00 UTC**, or manually. It merges
   upstream into `master`, then calls **Build** for the exact resulting commit
