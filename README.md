@@ -1,10 +1,16 @@
-**English**
-
 <!-- fork README -->
 
 <p align="center">
   <img src="media/graphics/branding/libernt-banner-darkmode.png" width="480" alt="LiberNT">
 </p>
+
+= Latest news  =
+
+* I now run my fork on my laptop, and I'm checking out the main LibreNT every day
+* I already found two big bugs: one on MTU of IP interfaces, another on polling of Tablet
+* If you have an Intel laptop of circa 2018-2023 check it out (you can download the ISO and update the fork automatically)
+
+= ZorroDJ LibreNT & ZUFUS  =
 
 I fell in love with [LiberNT](https://github.com/LiberNT/LiberNT) immediately: this product is an atomic bomb, and it can be one of the most disruptive products, together with [ElixirOffice](https://github.com/leag1234/elixiroffice) (and [LibreOffice](https://github.com/libreoffice) itself), to remove the cancer represented by Microsoft products. Even for the most Linux-minded companies, the ones irreducibly committed to getting rid of their dependency on Microsoft products, it is practically impossible not to have Windows on some workstations for legacy reasons. LiberNT is a concrete hope: this GitHub fork contains my personal fix to DarkMode - keep reading about why...
 
