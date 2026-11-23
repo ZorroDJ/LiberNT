@@ -17,26 +17,16 @@ jobs:
           ref: master
       - name: Restore protected files
         run: |
-          restore() {
-            src="$1"; dst="$2"
-            cmp -s "$dst" "$src" && return 1
-            cp "$src" "$dst"
-            return 0
-          }
           changed=0
-          restore darkmode-analysis/README.canonical.md README.md && changed=1
-          restore darkmode-analysis/protected/banner.png media/graphics/branding/libernt-banner-darkmode.png && changed=1
-          restore darkmode-analysis/protected/drivers/hid/mouhid/mouhid.c drivers/hid/mouhid/mouhid.c && changed=1
-          restore darkmode-analysis/protected/boot/bootdata/hivedef.inf boot/bootdata/hivedef.inf && changed=1
-          restore darkmode-analysis/protected/media/inf/msmouse.inf media/inf/msmouse.inf && changed=1
-          restore darkmode-analysis/protected/base/setup/libernt/updagent.c base/setup/libernt/updagent.c && changed=1
-          restore darkmode-analysis/protected/base/setup/libernt/lntupdate.inf base/setup/libernt/lntupdate.inf && changed=1
+          while read -r source destination; do
+            if ! cmp -s "$destination" "$source"; then
+              cp "$source" "$destination"
+              git add "$destination"
+              changed=1
+            fi
+          done < .github/protected-files.txt
           [ "$changed" = 1 ] || { echo "Protected files already intact."; exit 0; }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add README.md media/graphics/branding/libernt-banner-darkmode.png \
-                  drivers/hid/mouhid/mouhid.c boot/bootdata/hivedef.inf \
-                  media/inf/msmouse.inf base/setup/libernt/updagent.c \
-                  base/setup/libernt/lntupdate.inf
           git commit -m "docs: restore protected fork files after sync"
           git push

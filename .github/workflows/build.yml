@@ -3,10 +3,15 @@ on:
   push:
     branches: [master]
   pull_request:
-  # Saves the pull request configuration's ccache on the default branch, the only cache a new pull request can restore
-  schedule:
-    - cron: '0 3 * * *'
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+    outputs:
+      source_sha:
+        value: ${{ jobs.build-linux.outputs.source_sha }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
@@ -26,10 +31,11 @@ jobs:
             build: release
       fail-fast: false
     runs-on: ubuntu-24.04
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
     env:
-      BUILD_TYPE: ${{ matrix.build || (github.event_name == 'push' && 'release' || 'debug') }}
-      CCACHE_KEY: ccache-${{ (matrix.build || (github.event_name == 'push' && 'release' || 'debug')) == 'release' && 'release-' || '' }}${{matrix.compiler}}-${{matrix.arch}}${{matrix.variant}}-
-      CCACHE_SEED: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+      BUILD_TYPE: ${{ matrix.build }}
+      CCACHE_KEY: ccache-release-${{matrix.compiler}}-${{matrix.arch}}-
     steps:
     - name: Free disk space
       run: |
@@ -40,6 +46,12 @@ jobs:
 
     - name: Source checkout
       uses: actions/checkout@v6
+      with:
+        ref: ${{ inputs.ref || github.sha }}
+
+    - name: Record source revision
+      id: source
+      run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
     - name: Install host build tools
       run: |
@@ -53,6 +65,9 @@ jobs:
           fi
           sleep $((30 * attempt))
         done
+
+    - name: Verify fork automation
+      run: python3 -m unittest discover -s .github/tests -v
 
     - name: Compute RosBE bootstrap SHA
       id: rosbe_spec
@@ -117,7 +132,6 @@ jobs:
         [ "$BUILD_TYPE" = "release" ] && FLAGS="$FLAGS --release"
         [ "${{matrix.compiler}}" = "clang" ] && FLAGS="$FLAGS --clang"
         [ "${{matrix.compiler}}" = "gcc" ] && FLAGS="$FLAGS --gcc"
-        [ -n "${{matrix.profile}}" ] && FLAGS="$FLAGS -DROSCONFIG_PROFILE=${{matrix.profile}}"
         [ "${{matrix.compiler}}" = "clang" ] && case "${{matrix.arch}}" in amd64|arm64|riscv64) FLAGS="$FLAGS -DENABLE_MESA_LLVMPIPE=ON" ;; esac
         ./configure.sh $FLAGS -a ${{matrix.arch}} \
           -DREACTOS_TARGET_NT=0xA00 \
@@ -166,9 +180,11 @@ jobs:
 
     - name: Name artifacts
       id: images
+      env:
+        SOURCE_SHA: ${{ steps.source.outputs.sha }}
       run: |
         [ "$BUILD_TYPE" = "release" ] && TYPE=-release || TYPE=
-        echo "tag=${{matrix.compiler}}-${{matrix.arch}}${{matrix.variant}}$TYPE-${GITHUB_SHA::11}" >> "$GITHUB_OUTPUT"
+        echo "tag=${{matrix.compiler}}-${{matrix.arch}}$TYPE-${SOURCE_SHA::11}" >> "$GITHUB_OUTPUT"
 
     - name: Name bootcd.iso
       run: |
@@ -176,28 +192,27 @@ jobs:
         if [ -f "$ISO" ]; then ln -f "$ISO" "${{steps.configure.outputs.outdir}}/bootcd-${{steps.images.outputs.tag}}.iso"; fi
 
     - name: Upload bootcd.iso
-      if: ${{ env.CCACHE_SEED != 'true' }}
       uses: actions/upload-artifact@v7
       with:
         path: ${{steps.configure.outputs.outdir}}/bootcd-${{steps.images.outputs.tag}}.iso
         archive: false
 
     - name: Upload LiberNT.img
-      if: ${{ env.BUILD_TYPE == 'debug' && env.CCACHE_SEED != 'true' }}
+      if: ${{ env.BUILD_TYPE == 'debug' }}
       uses: actions/upload-artifact@v7
       with:
         name: LiberNT-img-${{steps.images.outputs.tag}}
         path: ${{steps.configure.outputs.outdir}}/LiberNT.img
 
     - name: Upload LiberNT.vhd
-      if: ${{ env.BUILD_TYPE == 'debug' && env.CCACHE_SEED != 'true' }}
+      if: ${{ env.BUILD_TYPE == 'debug' }}
       uses: actions/upload-artifact@v7
       with:
         name: LiberNT-vhd-${{steps.images.outputs.tag}}
         path: ${{steps.configure.outputs.outdir}}/LiberNT.vhd
 
     - name: Upload LiberNT.vhdx
-      if: ${{ env.BUILD_TYPE == 'debug' && env.CCACHE_SEED != 'true' }}
+      if: ${{ env.BUILD_TYPE == 'debug' }}
       uses: actions/upload-artifact@v7
       with:
         name: LiberNT-vhdx-${{steps.images.outputs.tag}}
@@ -205,61 +220,3 @@ jobs:
 
     - name: Check build dependencies
       run: python3 sdk/tools/depcheck.py ${{steps.configure.outputs.outdir}} --mode depfiles --nested --fail-on-gaps
-
-  build-msvc:
-    if: false
-    strategy:
-      matrix:
-        arch: [amd64, i386, arm64]
-      fail-fast: false
-    runs-on: windows-2025
-    steps:
-    - name: Source checkout
-      uses: actions/checkout@v6
-
-    - name: Install host build tools
-      shell: pwsh
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        # GitHub throttles anonymous release downloads from runners; gh downloads with the job token.
-        $zip = "$env:RUNNER_TEMP\win_flex_bison-2.5.24.zip"
-        foreach ($attempt in 1..4) {
-            gh release download v2.5.24 --repo lexxmark/winflexbison --pattern win_flex_bison-2.5.24.zip --output $zip --clobber
-            if ($LASTEXITCODE -eq 0) { break }
-            if ($attempt -eq 4) { throw "Downloading winflexbison failed" }
-            Start-Sleep -Seconds (15 * $attempt)
-        }
-        if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne "39C6086CE211D5415500ACC5ED2D8939861CA1696AEE48909C7F6DAF5122B505") {
-            throw "win_flex_bison-2.5.24.zip does not have the expected SHA256"
-        }
-        $tools = "$env:RUNNER_TEMP\winflexbison"
-        Expand-Archive $zip -DestinationPath $tools -Force
-        python -m pip install --upgrade mako pyyaml packaging
-        # LiberNT's CMake looks for flex/bison; winflexbison ships them as
-        # win_flex/win_bison, so expose both names on PATH.
-        Copy-Item "$tools\win_flex.exe" "$tools\flex.exe" -Force
-        Copy-Item "$tools\win_bison.exe" "$tools\bison.exe" -Force
-        echo "$tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-    - name: Set up the MSVC build environment
-      uses: ilammy/msvc-dev-cmd@v1
-      with:
-        arch: ${{ matrix.arch == 'i386' && 'amd64_x86' || matrix.arch == 'arm64' && 'amd64_arm64' || 'amd64' }}
-
-    - name: Configure
-      id: configure
-      shell: cmd
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-      run: |
-        call configure.cmd /arch=${{matrix.arch}} -DREACTOS_TARGET_NT=0xA00 -DENABLE_CCACHE=0
-        echo outdir=output-VS-${{matrix.arch}}-debug>> "%GITHUB_OUTPUT%"
-
-    - name: Build submodules
-      shell: cmd
-      run: ninja -C ${{steps.configure.outputs.outdir}} submodules
-
-    - name: Build
-      shell: cmd
-      run: ninja -C ${{steps.configure.outputs.outdir}} -k0

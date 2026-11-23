@@ -8,42 +8,34 @@ on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: Build run id
+        description: Successful master build run id
+        required: true
+  workflow_call:
+    inputs:
+      run_id:
+        type: string
+        required: true
+      source_sha:
+        type: string
         required: true
 
 permissions:
   contents: write
   actions: read
 
+concurrency:
+  group: publish-iso
+  cancel-in-progress: false
+
 jobs:
   publish:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
+    if: ${{ inputs.source_sha != '' || github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch')) }}
     runs-on: ubuntu-latest
     steps:
-      - name: Download ISO artifact
+      - uses: actions/checkout@v6
+      - name: Publish dated ISO release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
-        run: |
-          mkdir -p dist
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" \
-            --jq '.artifacts[] | select(.name | startswith("bootcd-")) | "\(.id) \(.name)"' |
-          while read -r id name; do
-            curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" \
-              -o "dist/$name"
-          done
-
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          iso=$(find dist -type f -name '*.iso' | head -n 1)
-          test -n "$iso"
-          if ! gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create latest \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "Latest AMD64 ISO" \
-              --notes "Automatically built AMD64 ISO with DarkMode and current LiberNT stock."
-          fi
-          gh release upload latest "$iso" --repo "$GITHUB_REPOSITORY" --clobber
+          BUILD_RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: python3 .github/scripts/publish_iso.py

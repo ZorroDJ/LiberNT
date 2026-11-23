@@ -2,12 +2,13 @@ name: Sync upstream
 
 on:
   schedule:
-    - cron: '0 4 * * *'
+    - cron: '0 3 * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
   issues: write
+  actions: write
 
 concurrency:
   group: sync-upstream
@@ -16,51 +17,80 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.merge.outputs.sha }}
+    env:
+      GIT_AUTHOR_NAME: github-actions[bot]
+      GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+      GIT_COMMITTER_NAME: github-actions[bot]
+      GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
     steps:
       - name: Checkout master
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: master
           fetch-depth: 0
-
-      - name: Configure git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Merge upstream/master
         id: merge
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           before=$(git rev-parse HEAD)
-          git remote add upstream https://github.com/LiberNT/LiberNT.git
-          git fetch upstream master
-          if ! git merge -X ours --no-edit upstream/master; then
+          git fetch "${UPSTREAM_URL:-https://github.com/LiberNT/LiberNT.git}" master
+          upstream=$(git rev-parse FETCH_HEAD)
+          merge_status=0
+          git merge --no-commit --no-ff "$upstream" || merge_status=$?
+          if [ "$merge_status" != 0 ] && ! git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+            exit "$merge_status"
+          fi
+          while read -r source destination; do
+            cp "$source" "$destination"
+            git add "$destination"
+          done < .github/protected-files.txt
+          conflicts=$(git diff --name-only --diff-filter=U)
+          if [ -n "$conflicts" ]; then
             git merge --abort
-            gh issue create \
-              --title "Upstream sync conflict $(date -u +%Y-%m-%d)" \
-              --body "Automatic sync with https://github.com/LiberNT/LiberNT failed on \`$before\`. Resolve the conflict manually, then the next scheduled run can continue."
+            title="Upstream sync conflict ${upstream:0:11}"
+            existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+              --search "$title in:title" --limit 1 --json number --jq '.[0].number // empty')
+            if [ -z "$existing" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" \
+                --body "Sync of upstream $upstream onto fork $before stopped. Conflicting files: $conflicts. The published fork was left intact; resolve these conflicts before retrying."
+            fi
             exit 1
           fi
-          git checkout "$before" -- README.md
-          for pair in \
-            "darkmode-analysis/protected/drivers/hid/mouhid/mouhid.c drivers/hid/mouhid/mouhid.c" \
-            "darkmode-analysis/protected/boot/bootdata/hivedef.inf boot/bootdata/hivedef.inf" \
-            "darkmode-analysis/protected/media/inf/msmouse.inf media/inf/msmouse.inf" \
-            "darkmode-analysis/protected/base/setup/libernt/updagent.c base/setup/libernt/updagent.c" \
-            "darkmode-analysis/protected/base/setup/libernt/lntupdate.inf base/setup/libernt/lntupdate.inf" \
-            "darkmode-analysis/protected/banner.png media/graphics/branding/libernt-banner-darkmode.png"; do
-            set -- $pair
-            cp "$1" "$2"
-            git add "$2"
-          done
-          if ! git diff --quiet HEAD; then
-            git commit --amend --no-edit
+          if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+            git commit -m "[SYNC] Merge upstream master" \
+              -m "Problem: the fork needs current upstream changes." \
+              -m "Why: fork customizations must survive synchronization." \
+              -m "How: merge clean changes and retain the canonical protected files."
+          elif ! git diff --cached --quiet; then
+            git commit -m "[SYNC] Restore protected fork files"
           fi
-          if [ "$(git rev-parse HEAD)" = "$before" ]; then
+          if [ "$(git rev-parse HEAD)" != "$before" ]; then
+            git push origin HEAD:master
+          else
             echo "Upstream already merged; nothing to do."
-            exit 0
           fi
-          git push origin HEAD:master
-          echo "Pushed upstream sync."
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: sync
+    permissions:
+      contents: read
+      actions: write
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ needs.sync.outputs.sha }}
+
+  publish:
+    needs: [sync, build]
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/publish-iso.yml
+    with:
+      run_id: ${{ github.run_id }}
+      source_sha: ${{ needs.build.outputs.source_sha }}
