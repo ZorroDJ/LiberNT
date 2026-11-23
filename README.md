@@ -9,7 +9,7 @@
 * I now run my fork on my laptop, and I'm checking out the main LibreNT every day
 * I already found two big bugs: one on MTU of IP interfaces, [another on polling of Tablet](https://github.com/LiberNT/LiberNT/issues/725)
 * If you have an Intel laptop of circa 2018-2023 check it out (you can download the ISO and update the fork automatically)
-* I'm integrating partial fixes on darkmode (uxtheme/system.c) on my complete solution here, to stay in sync
+* I've integrated partial fixes on darkmode (uxtheme/system.c) on my complete solution here, to always stay in sync - ISO as always in the Release Zone
 
 = ZorroDJ LibreNT & ZUFUS  =
 
