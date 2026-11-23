@@ -1,4 +1,3 @@
-darkmode-analysis/README.canonical.md README.md
 darkmode-analysis/protected/banner.png media/graphics/branding/libernt-banner-darkmode.png
 darkmode-analysis/protected/drivers/hid/mouhid/mouhid.c drivers/hid/mouhid/mouhid.c
 darkmode-analysis/protected/boot/bootdata/hivedef.inf boot/bootdata/hivedef.inf

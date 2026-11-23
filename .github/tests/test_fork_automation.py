@@ -59,9 +59,16 @@ class WorkflowTests(unittest.TestCase):
     def test_protected_manifest_is_valid(self):
         pairs = [line.split() for line in (ROOT / ".github/protected-files.txt").read_text().splitlines()]
         self.assertEqual(len({p[1] for p in pairs}), len(pairs))
+        self.assertNotIn("README.md", {p[1] for p in pairs})
         for source, destination in pairs:
             self.assertTrue((ROOT / source).is_file(), source)
             self.assertEqual((ROOT / source).read_bytes(), (ROOT / destination).read_bytes(), destination)
+
+    def test_guard_pins_the_event_revision(self):
+        steps = workflow("readme-guard")["jobs"]["restore"]["steps"]
+        checkout = next(s for s in steps if "uses" in s)
+        self.assertEqual(checkout["with"]["ref"], "${{ github.sha }}")
+        self.assertEqual(checkout["with"]["fetch-depth"], 0)
 
 
 class SyncTests(unittest.TestCase):
@@ -74,17 +81,25 @@ class SyncTests(unittest.TestCase):
         self.origin = self.work / "origin.git"
         self.env = {**os.environ, "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@example.invalid",
                     "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.invalid"}
+        self.env.pop("FORK_README_SOURCE", None)
         self.git(self.work, "init", "--initial-branch=master", str(self.upstream))
         self.pairs = [line.split() for line in (ROOT / ".github/protected-files.txt").read_text().splitlines()]
         for source, destination in self.pairs:
             self.write(self.upstream / destination, "upstream base\n")
+        self.base_readme = "upstream title\n\nintro\n\nupstream footer\n"
+        self.fork_readme = "fork title\n\nintro\n\nupstream footer\n"
+        self.write(self.upstream / "README.md", self.base_readme)
         self.write(self.upstream / "shared.txt", "base\n")
         self.commit(self.upstream, "Base")
         self.git(self.work, "clone", str(self.upstream), str(self.fork))
         for source, destination in self.pairs:
             self.write(self.fork / source, "fork protected\n")
             self.write(self.fork / destination, "fork protected\n")
+        self.write(self.fork / "README.md", self.fork_readme)
+        self.write(self.fork / "darkmode-analysis/README.canonical.md", "obsolete README copy\n")
         self.write(self.fork / ".github/protected-files.txt", (ROOT / ".github/protected-files.txt").read_text())
+        helper = ".github/scripts/protect_upstream_readme.sh"
+        self.write(self.fork / helper, (ROOT / helper).read_text())
         self.commit(self.fork, "Fork customizations")
         self.git(self.work, "clone", "--bare", str(self.fork), str(self.origin))
         self.git(self.fork, "remote", "set-url", "origin", str(self.origin))
@@ -101,6 +116,8 @@ class SyncTests(unittest.TestCase):
                         PATH=f"{self.bin}{os.pathsep}{self.env['PATH']}")
         steps = workflow("sync-upstream")["jobs"]["sync"]["steps"]
         self.script = next(s["run"] for s in steps if s.get("id") == "merge")
+        steps = workflow("readme-guard")["jobs"]["restore"]["steps"]
+        self.guard_script = next(s["run"] for s in steps if "run" in s)
 
     @staticmethod
     def write(path, text):
@@ -118,6 +135,17 @@ class SyncTests(unittest.TestCase):
     def sync(self):
         return subprocess.run(["bash", "-c", self.script], cwd=self.fork, env=self.env,
                               capture_output=True, text=True)
+
+    def guard(self):
+        return subprocess.run(["bash", "-c", self.guard_script], cwd=self.fork, env=self.env,
+                              capture_output=True, text=True)
+
+    def native_merge(self):
+        self.write(self.upstream / "README.md", self.base_readme.replace("upstream footer", "new upstream footer"))
+        self.commit(self.upstream, "Upstream README update")
+        self.git(self.fork, "fetch", str(self.upstream), "master")
+        self.git(self.fork, "merge", "--no-ff", "--no-edit", "FETCH_HEAD")
+        self.git(self.fork, "push", "origin", "HEAD:master")
 
     def assert_synced(self, result):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -139,10 +167,96 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(self.git(self.fork, "rev-parse", "HEAD"), after)
 
     def test_conflict_in_protected_file_keeps_canonical(self):
-        self.write(self.upstream / "README.md", "upstream changed\n")
-        self.commit(self.upstream, "Update upstream README")
+        destination = self.pairs[0][1]
+        self.write(self.upstream / destination, "upstream changed\n")
+        self.commit(self.upstream, "Update protected upstream file")
         self.assert_synced(self.sync())
-        self.assertEqual((self.fork / "README.md").read_text(), "fork protected\n")
+        self.assertEqual((self.fork / destination).read_text(), "fork protected\n")
+
+    def test_scheduled_sync_keeps_latest_web_readme_after_conflict(self):
+        latest = "latest README edited through GitHub\n"
+        self.write(self.fork / "README.md", latest)
+        self.commit(self.fork, "Web edit")
+        self.git(self.fork, "push", "origin", "master")
+        self.write(self.upstream / "README.md", "conflicting upstream README\n")
+        self.commit(self.upstream, "Upstream README update")
+        self.assert_synced(self.sync())
+        self.assertEqual((self.fork / "README.md").read_text(), latest)
+
+    def test_scheduled_sync_ignores_nonconflicting_upstream_readme_edits(self):
+        self.write(self.upstream / "README.md", self.base_readme.replace("upstream footer", "new upstream footer"))
+        self.commit(self.upstream, "Upstream footer")
+        self.assert_synced(self.sync())
+        self.assertEqual((self.fork / "README.md").read_text(), self.fork_readme)
+
+    def test_scheduled_sync_restores_readme_deleted_by_upstream(self):
+        (self.upstream / "README.md").unlink()
+        self.commit(self.upstream, "Remove upstream README")
+        self.assert_synced(self.sync())
+        self.assertEqual((self.fork / "README.md").read_text(), self.fork_readme)
+
+    def test_scheduled_sync_keeps_intentional_fork_readme_deletion(self):
+        (self.fork / "README.md").unlink()
+        self.commit(self.fork, "Delete fork README intentionally")
+        self.git(self.fork, "push", "origin", "master")
+        self.write(self.upstream / "README.md", "new upstream README\n")
+        self.commit(self.upstream, "Replace upstream README")
+        self.assert_synced(self.sync())
+        self.assertFalse((self.fork / "README.md").exists())
+
+    def test_guard_retains_ordinary_web_edits(self):
+        latest = "new web README with latest news\n"
+        self.write(self.fork / "README.md", latest)
+        self.commit(self.fork, "Web README edit")
+        self.git(self.fork, "push", "origin", "master")
+        before = self.git(self.fork, "rev-parse", "HEAD")
+        result = self.guard()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.git(self.fork, "rev-parse", "HEAD"), before)
+        self.assertEqual(self.git(self.origin, "show", "master:README.md"), latest.strip())
+
+    def test_guard_protects_native_upstream_sync_from_detached_checkout(self):
+        self.native_merge()
+        self.assertIn("new upstream footer", (self.fork / "README.md").read_text())
+        self.git(self.fork, "checkout", "--detach", "HEAD")
+        result = self.guard()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.git(self.origin, "show", "master:README.md"), self.fork_readme.strip())
+
+    def test_guard_retains_feature_branch_readme_edits(self):
+        self.git(self.fork, "checkout", "-b", "feature")
+        self.write(self.fork / "README.md", "README from our feature branch\n")
+        self.commit(self.fork, "Feature README edit")
+        self.git(self.fork, "checkout", "master")
+        self.git(self.fork, "merge", "--no-ff", "--no-edit", "feature")
+        self.git(self.fork, "push", "origin", "master")
+        before = self.git(self.fork, "rev-parse", "HEAD")
+        result = self.guard()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.git(self.fork, "rev-parse", "HEAD"), before)
+        self.assertEqual(self.git(self.origin, "show", "master:README.md"), "README from our feature branch")
+
+    def test_guard_retains_web_edits_after_an_upstream_merge(self):
+        self.native_merge()
+        self.write(self.fork / "README.md", "User edits after upstream sync\n")
+        self.commit(self.fork, "Web edit after merge")
+        self.git(self.fork, "push", "origin", "master")
+        result = self.guard()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.git(self.origin, "show", "master:README.md"), "User edits after upstream sync")
+
+    def test_stale_guard_cannot_overwrite_a_newer_web_edit(self):
+        self.native_merge()
+        other = self.work / "other"
+        self.git(self.work, "clone", str(self.origin), str(other))
+        self.write(other / "README.md", "Newer web edit while the guard runs\n")
+        self.commit(other, "Concurrent web edit")
+        self.git(other, "push", "origin", "master")
+        newest = self.git(self.origin, "rev-parse", "master")
+        result = self.guard()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.git(self.origin, "rev-parse", "master"), newest)
+        self.assertEqual(self.git(self.origin, "show", "master:README.md"), "Newer web edit while the guard runs")
 
     def test_real_conflict_aborts_without_pushing(self):
         self.write(self.fork / "shared.txt", "fork change\n")

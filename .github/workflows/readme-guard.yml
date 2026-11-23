@@ -1,4 +1,4 @@
-name: README guard
+name: Protected fork files
 
 on:
   push:
@@ -11,22 +11,26 @@ permissions:
 jobs:
   restore:
     runs-on: ubuntu-latest
+    env:
+      GIT_AUTHOR_NAME: github-actions[bot]
+      GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+      GIT_COMMITTER_NAME: github-actions[bot]
+      GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: master
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Restore protected files
         run: |
-          changed=0
+          set -euo pipefail
+          bash .github/scripts/protect_upstream_readme.sh
           while read -r source destination; do
             if ! cmp -s "$destination" "$source"; then
               cp "$source" "$destination"
               git add "$destination"
-              changed=1
             fi
           done < .github/protected-files.txt
-          [ "$changed" = 1 ] || { echo "Protected files already intact."; exit 0; }
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "docs: restore protected fork files after sync"
-          git push
+          git diff --cached --quiet && { echo "No protected files need restoring."; exit 0; }
+          git commit -m "[SYNC] Preserve fork files after upstream import"
+          git push origin HEAD:master

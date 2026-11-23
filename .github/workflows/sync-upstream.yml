@@ -45,6 +45,7 @@ jobs:
           if [ "$merge_status" != 0 ] && ! git rev-parse -q --verify MERGE_HEAD >/dev/null; then
             exit "$merge_status"
           fi
+          FORK_README_SOURCE="$before" bash .github/scripts/protect_upstream_readme.sh
           while read -r source destination; do
             cp "$source" "$destination"
             git add "$destination"

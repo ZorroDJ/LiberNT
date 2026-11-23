@@ -8,6 +8,13 @@
   Other merge conflicts abort the sync and open an issue; the remote fork is
   left unchanged. Update canonical and active copies together when changing
   a protected file.
+- **README.md is edited directly**, including from GitHub's web editor; no
+  canonical copy replaces those edits. The scheduled sync retains the exact
+  README from the fork commit before merging. For GitHub's native **Sync
+  fork** merge, the guard restores the README from the merge's first parent
+  only when another parent belongs to upstream history. Ordinary edits and
+  merges of fork feature branches retain their README changes. A concurrent
+  push rejects a stale guard update instead of overwriting newer edits.
 - Pushes to `master` and manual **Build** runs produce a Clang amd64 Release
   ISO. Pull-request artifacts are not published as releases.
 - Releases use `daily-YYYY-MM-DD-<commit>` tags, with UTC dates and immutable
