@@ -66,6 +66,7 @@ list(APPEND SOURCE
     arm64_chpe.c
     wow64_startup.c
     wow64_native_process.c
+    KnownDlls.c
     LdrEnumResources.c
     LdrFindResource_U.c
     LdrForwarderPath.c
@@ -206,6 +207,7 @@ list(APPEND SOURCE
     RtlGetLengthWithoutTrailingPathSeperators.c
     RtlGetLongestNtPathLength.c
     RtlGetNtProductType.c
+    RtlGetVersion.c
     RtlGetProcessHeaps.c
     RtlHeapApis.c
     RtlGetProductInfo.c
@@ -220,6 +222,7 @@ list(APPEND SOURCE
     RtlIsNameInExpression.c
     RtlIsNameLegalDOS8Dot3.c
     RtlLocale.c
+    RtlLocateExtendedFeature.c
     RtlMemoryStream.c
     PfxPrefixTable.c
     RtlAddressInSectionTable.c

@@ -37,6 +37,7 @@ extern void func_FileStatInformation(void);
 extern void func_arm64_chpe(void);
 extern void func_wow64_startup(void);
 extern void func_wow64_native_process(void);
+extern void func_KnownDlls(void);
 extern void func_LdrEnumResources(void);
 extern void func_LdrFindResource_U(void);
 extern void func_LdrForwarderPath(void);
@@ -181,6 +182,7 @@ extern void func_RtlGetLengthWithoutLastFullDosOrNtPathElement(void);
 extern void func_RtlGetLengthWithoutTrailingPathSeperators(void);
 extern void func_RtlGetLongestNtPathLength(void);
 extern void func_RtlGetNtProductType(void);
+extern void func_RtlGetVersion(void);
 extern void func_RtlGetProcessHeaps(void);
 extern void func_RtlHeapApis(void);
 extern void func_RtlGetProductInfo(void);
@@ -196,6 +198,7 @@ extern void func_RtlIntSafe(void);
 extern void func_RtlIsNameInExpression(void);
 extern void func_RtlIsNameLegalDOS8Dot3(void);
 extern void func_RtlLocale(void);
+extern void func_RtlLocateExtendedFeature(void);
 extern void func_RtlMemoryStream(void);
 extern void func_PfxPrefixTable(void);
 extern void func_RtlAddressInSectionTable(void);
@@ -292,6 +295,7 @@ const struct test winetest_testlist[] =
     { "DpcBehaviorRegistry",            func_DpcBehaviorRegistry },
     { "FileStatInformation",            func_FileStatInformation },
     { "arm64_chpe",                     func_arm64_chpe },
+    { "KnownDlls",                      func_KnownDlls },
     { "LdrEnumResources",               func_LdrEnumResources },
     { "LdrFindResource_U",              func_LdrFindResource_U },
     { "LdrForwarderPath",               func_LdrForwarderPath },
@@ -438,6 +442,7 @@ const struct test winetest_testlist[] =
     { "RtlGetLengthWithoutTrailingPathSeperators", func_RtlGetLengthWithoutTrailingPathSeperators },
     { "RtlGetLongestNtPathLength",      func_RtlGetLongestNtPathLength },
     { "RtlGetNtProductType",            func_RtlGetNtProductType },
+    { "RtlGetVersion",                  func_RtlGetVersion },
     { "RtlGetProcessHeaps",             func_RtlGetProcessHeaps },
     { "RtlHeapApis",                    func_RtlHeapApis },
     { "RtlGetProductInfo",              func_RtlGetProductInfo },
@@ -453,6 +458,7 @@ const struct test winetest_testlist[] =
     { "RtlIsNameInExpression",          func_RtlIsNameInExpression},
     { "RtlIsNameLegalDOS8Dot3",         func_RtlIsNameLegalDOS8Dot3 },
     { "RtlLocale",                      func_RtlLocale },
+    { "RtlLocateExtendedFeature",       func_RtlLocateExtendedFeature },
     { "RtlMemoryStream",                func_RtlMemoryStream },
     { "PfxPrefixTable", func_PfxPrefixTable },
     { "RtlAddressInSectionTable", func_RtlAddressInSectionTable },

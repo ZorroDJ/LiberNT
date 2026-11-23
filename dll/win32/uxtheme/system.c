@@ -821,11 +821,13 @@ static BOOL UXTHEME_NormalizeClassList(LPCWSTR src, LPWSTR dst, SIZE_T cch)
 static BOOL UXTHEME_UseLightClasses(HWND hwnd, LPCWSTR classList, DWORD flags,
                                     BOOL darkRequest)
 {
+    LONG mode = ReadAcquire(&g_PreferredAppMode);
+
     if ((flags & OTD_NONCLIENT) && !lstrcmpiW(classList, L"WINDOW"))
         return !darkRequest && DwmSettingsReadColorScheme() == DWM_COLOR_SCHEME_LIGHT;
-    if (g_PreferredAppMode == UXTHEME_APP_MODE_FORCE_LIGHT)
+    if (mode == UXTHEME_APP_MODE_FORCE_LIGHT)
         return TRUE;
-    if (g_PreferredAppMode == UXTHEME_APP_MODE_FORCE_DARK)
+    if (mode == UXTHEME_APP_MODE_FORCE_DARK)
         return FALSE;
     if (darkRequest || IsDarkModeAllowedForWindow(hwnd))
         return FALSE;
@@ -1817,10 +1819,11 @@ BOOLEAN WINAPI ShouldSystemUseDarkMode(void)
 BOOLEAN WINAPI ShouldAppsUseDarkMode(void)
 {
     DWORD light_theme = TRUE, light_theme_size = sizeof(light_theme);
+    LONG mode = ReadAcquire(&g_PreferredAppMode);
 
-    if (g_PreferredAppMode == UXTHEME_APP_MODE_FORCE_LIGHT)
+    if (mode == UXTHEME_APP_MODE_FORCE_LIGHT)
         return FALSE;
-    if (g_PreferredAppMode == UXTHEME_APP_MODE_FORCE_DARK)
+    if (mode == UXTHEME_APP_MODE_FORCE_DARK)
         return TRUE;
 
     RegGetValueW(HKEY_CURRENT_USER,
@@ -1836,16 +1839,16 @@ BOOLEAN WINAPI ShouldAppsUseDarkMode(void)
  */
 BOOLEAN WINAPI AllowDarkModeForWindow(HWND hwnd, BOOLEAN allow)
 {
-    BOOLEAN previous;
-
-    if (!hwnd)
+    if (!IsWindow(hwnd))
+    {
+        SetLastError(ERROR_INVALID_WINDOW_HANDLE);
         return FALSE;
+    }
 
-    previous = GetPropW(hwnd, dark_mode_propW) != NULL ||
-               GetPropW(hwnd, immersive_dark_mode_propW) != NULL;
     if (allow)
     {
-        SetPropW(hwnd, dark_mode_propW, (HANDLE)1);
+        if (!SetPropW(hwnd, dark_mode_propW, (HANDLE)1))
+            return FALSE;
         SetPropW(hwnd, immersive_dark_mode_propW, (HANDLE)1);
     }
     else
@@ -1854,7 +1857,7 @@ BOOLEAN WINAPI AllowDarkModeForWindow(HWND hwnd, BOOLEAN allow)
         RemovePropW(hwnd, immersive_dark_mode_propW);
     }
 
-    return previous;
+    return TRUE;
 }
 
 /**********************************************************************
@@ -1863,9 +1866,8 @@ BOOLEAN WINAPI AllowDarkModeForWindow(HWND hwnd, BOOLEAN allow)
  */
 int WINAPI SetPreferredAppMode(int app_mode)
 {
-    if (app_mode < UXTHEME_APP_MODE_DEFAULT || app_mode > UXTHEME_APP_MODE_MAX)
-        app_mode = UXTHEME_APP_MODE_DEFAULT;
-
+    if (app_mode < UXTHEME_APP_MODE_DEFAULT || app_mode >= UXTHEME_APP_MODE_MAX)
+        return ReadAcquire(&g_PreferredAppMode);
     return InterlockedExchange(&g_PreferredAppMode, app_mode);
 }
 
@@ -1889,9 +1891,10 @@ void WINAPI FlushMenuThemes(void)
 BOOLEAN WINAPI IsDarkModeAllowedForWindow(HWND hwnd)
 {
     HWND root;
+    LONG mode = ReadAcquire(&g_PreferredAppMode);
 
-    if (g_PreferredAppMode != UXTHEME_APP_MODE_ALLOW_DARK &&
-        g_PreferredAppMode != UXTHEME_APP_MODE_FORCE_DARK)
+    if (mode != UXTHEME_APP_MODE_ALLOW_DARK &&
+        mode != UXTHEME_APP_MODE_FORCE_DARK)
         return FALSE;
     if (!hwnd)
         return TRUE;
