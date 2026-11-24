@@ -2116,7 +2116,7 @@
 @ stdcall -arch=win64 ExAllocateFromLookasideListEx(ptr) ExiAllocateFromLookasideListEx
 @ stdcall -arch=win64 ExAllocateFromNPagedLookasideList(ptr) ExiAllocateFromNPagedLookasideList
 @ stdcall ExAllocatePool2(int64 ptr long)
-@ stdcall -arch=win64 ExAllocatePool3(int64 long long ptr long)
+@ stdcall ExAllocatePool3(int64 ptr long ptr long)
 @ stdcall -version=0x603+ ExAllocateTimer(ptr ptr long)
 @ fastcall -arch=win64 ExBlockOnAddressPushLock(ptr ptr ptr int64 ptr)
 @ stub -arch=win64 ExCancelDpcEventWait
@@ -2586,8 +2586,8 @@
 @ stdcall KeQueryLogicalProcessorRelationship(ptr long ptr ptr)
 @ stdcall KeQueryMaximumGroupCount()
 @ stdcall KeQueryNodeActiveAffinity(long ptr ptr)
-@ stdcall KeQueryNodeActiveAffinity2(long ptr ptr)
-@ stdcall -arch=win64 KeQueryNodeActiveProcessorCount(long)
+@ stdcall KeQueryNodeActiveAffinity2(long ptr long ptr)
+@ stdcall KeQueryNodeActiveProcessorCount(long)
 @ stdcall -arch=win64 KeQueryNodeMaximumProcessorCount(long)
 @ stdcall -arch=win64 KeQueryPrcbAddress(long)
 @ stub -arch=win64 KeQuerySystemCpuPartitionAffinity

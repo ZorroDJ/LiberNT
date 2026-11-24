@@ -136,8 +136,8 @@ CmpCheckCreateAccess(
     _In_ PCM_KEY_CONTROL_BLOCK ParentKcb,
     _In_ PACCESS_STATE AccessState,
     _In_ KPROCESSOR_MODE AccessMode,
-    _In_ ULONG CreateOptions,
-    _In_ BOOLEAN CreateLink)
+    _In_ BOOLEAN CreateLink,
+    _In_ ULONG CreateOptions)
 {
     PSECURITY_DESCRIPTOR Descriptor = NULL;
     ACCESS_MASK Wanted = KEY_CREATE_SUB_KEY;
@@ -146,9 +146,16 @@ CmpCheckCreateAccess(
     NTSTATUS Status;
     BOOLEAN Allowed;
 
+    ASSERT(ParentKcb != NULL);
+
     if (AccessMode == KernelMode) return STATUS_SUCCESS;
+
+    ASSERT(AccessState != NULL);
+
+    /* Windows 11 creates a key, link or not, under any parent for a backup/restore create holding either privilege */
     if ((CreateOptions & REG_OPTION_BACKUP_RESTORE) &&
-        SeSinglePrivilegeCheck(SeRestorePrivilege, AccessMode))
+        (SeSinglePrivilegeCheck(SeBackupPrivilege, AccessMode) ||
+         SeSinglePrivilegeCheck(SeRestorePrivilege, AccessMode)))
     {
         return STATUS_SUCCESS;
     }
@@ -435,10 +442,10 @@ CmpDoCreate(
     if (StorageType == Volatile) Flags |= KEY_IS_VOLATILE;
 
     Status = CmpCheckCreateAccess(ParentKcb,
-                                   AccessState,
-                                   AccessMode,
-                                   Context->CreateOptions,
-                                   (Flags & KEY_SYM_LINK) != 0);
+                                  AccessState,
+                                  AccessMode,
+                                  (Flags & KEY_SYM_LINK) != 0,
+                                  Context->CreateOptions);
     if (!NT_SUCCESS(Status)) return Status;
 
     ParentNode = (PCM_KEY_NODE)HvGetCell(Hive, Cell);

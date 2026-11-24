@@ -559,12 +559,14 @@ typedef struct _FILE_ID_128 {
 #define HEAP_TAIL_CHECKING_ENABLED 32
 #define HEAP_FREE_CHECKING_ENABLED 64
 #define HEAP_DISABLE_COALESCE_ON_FREE 128
+#define HEAP_CREATE_SEGMENT_HEAP 0x00000100
+#define HEAP_CREATE_HARDENED 0x00000200
 #define HEAP_CREATE_ALIGN_16 0x10000
 #define HEAP_CREATE_ENABLE_TRACING 0x20000
 #define HEAP_CREATE_ENABLE_EXECUTE 0x00040000
 #define HEAP_MAXIMUM_TAG 0xFFF
 #define HEAP_PSEUDO_TAG_FLAG 0x8000
-#define HEAP_TAG_SHIFT 16
+#define HEAP_TAG_SHIFT 18
 #define HEAP_MAKE_TAG_FLAGS(b,o) ((DWORD)((b)+(o)<<16)))
 
 #define KEY_QUERY_VALUE 1
@@ -593,8 +595,14 @@ typedef struct _FILE_ID_128 {
 #define REG_OPTION_CREATE_LINK    2
 #define REG_OPTION_BACKUP_RESTORE    4
 #define REG_OPTION_OPEN_LINK    8
-#define REG_LEGAL_OPTION    15
-#define MAXIMUM_PROCESSORS 32
+#define REG_OPTION_DONT_VIRTUALIZE    0x10
+#define REG_LEGAL_OPTION    (REG_OPTION_RESERVED|REG_OPTION_NON_VOLATILE|REG_OPTION_VOLATILE|REG_OPTION_CREATE_LINK|REG_OPTION_BACKUP_RESTORE|REG_OPTION_OPEN_LINK|REG_OPTION_DONT_VIRTUALIZE)
+#if defined(_WIN64)
+#define MAXIMUM_PROC_PER_GROUP 64
+#else
+#define MAXIMUM_PROC_PER_GROUP 32
+#endif
+#define MAXIMUM_PROCESSORS MAXIMUM_PROC_PER_GROUP
 #define PAGE_NOACCESS    0x0001
 #define PAGE_READONLY    0x0002
 #define PAGE_READWRITE    0x0004
@@ -858,7 +866,7 @@ typedef struct _CFG_CALL_TARGET_INFO {
 #define IMAGE_SYM_DTYPE_POINTER 1
 #define IMAGE_SYM_DTYPE_FUNCTION 2
 #define IMAGE_SYM_DTYPE_ARRAY 3
-#define IMAGE_SYM_CLASS_END_OF_FUNCTION    (-1)
+#define IMAGE_SYM_CLASS_END_OF_FUNCTION    ((BYTE)-1)
 #define IMAGE_SYM_CLASS_NULL 0
 #define IMAGE_SYM_CLASS_AUTOMATIC 1
 #define IMAGE_SYM_CLASS_EXTERNAL 2
@@ -917,7 +925,7 @@ typedef struct _CFG_CALL_TARGET_INFO {
 #define IMAGE_REL_MIPS_SECRELLO 12
 #define IMAGE_REL_MIPS_SECRELHI 13
 #define IMAGE_REL_MIPS_REFWORDNB 34
-#define IMAGE_REL_MIPS_PAIR 35
+#define IMAGE_REL_MIPS_PAIR 0x0025
 #define IMAGE_REL_ALPHA_ABSOLUTE 0
 #define IMAGE_REL_ALPHA_REFLONG 1
 #define IMAGE_REL_ALPHA_REFQUAD 2
@@ -1024,8 +1032,11 @@ typedef struct _CFG_CALL_TARGET_INFO {
 #define SERVICE_WIN32_OWN_PROCESS 16
 #define SERVICE_WIN32_SHARE_PROCESS 32
 #define SERVICE_WIN32 (SERVICE_WIN32_OWN_PROCESS|SERVICE_WIN32_SHARE_PROCESS)
+#define SERVICE_USER_SERVICE 0x40
+#define SERVICE_USERSERVICE_INSTANCE 0x80
 #define SERVICE_INTERACTIVE_PROCESS 256
-#define SERVICE_TYPE_ALL (SERVICE_WIN32|SERVICE_ADAPTER|SERVICE_DRIVER|SERVICE_INTERACTIVE_PROCESS)
+#define SERVICE_PKG_SERVICE 0x200
+#define SERVICE_TYPE_ALL (SERVICE_WIN32|SERVICE_ADAPTER|SERVICE_DRIVER|SERVICE_INTERACTIVE_PROCESS|SERVICE_USER_SERVICE|SERVICE_USERSERVICE_INSTANCE|SERVICE_PKG_SERVICE)
 #define SERVICE_BOOT_START 0
 #define SERVICE_SYSTEM_START 1
 #define SERVICE_AUTO_START 2
@@ -1197,7 +1208,8 @@ typedef BOOLEAN (NTAPI *PSECURE_MEMORY_CACHE_CALLBACK)(_In_reads_bytes_(Range) P
 #define MAXIMUM_REPARSE_DATA_BUFFER_SIZE 16384
 #define IO_REPARSE_TAG_RESERVED_ZERO 0
 #define IO_REPARSE_TAG_RESERVED_ONE 1
-#define IO_REPARSE_TAG_RESERVED_RANGE IO_REPARSE_TAG_RESERVED_ONE
+#define IO_REPARSE_TAG_RESERVED_TWO 2
+#define IO_REPARSE_TAG_RESERVED_RANGE IO_REPARSE_TAG_RESERVED_TWO
 #define IsReparseTagMicrosoft(x) ((x)&0x80000000)
 #define IsReparseTagHighLatency(x) ((x)&0x40000000)
 #define IsReparseTagNameSurrogate(x) ((x)&0x20000000)
@@ -2399,15 +2411,19 @@ RtlVirtualUnwind(
 #define CONTEXT_ARM64_DEBUG_REGISTERS (CONTEXT_ARM64 | 0x8L)
 #define CONTEXT_ARM64_X18 (CONTEXT_ARM64 | 0x10L)
 #define CONTEXT_ARM64_XSTATE (CONTEXT_ARM64 | 0x20L)
+#define CONTEXT_ARM64_FLOATING_POINT_LOW (CONTEXT_ARM64 | 0x40L)
+#define CONTEXT_ARM64_FLOATING_POINT_HIGH (CONTEXT_ARM64 | 0x80L)
 #define CONTEXT_ARM64_FULL (CONTEXT_ARM64_CONTROL | CONTEXT_ARM64_INTEGER | CONTEXT_ARM64_FLOATING_POINT)
-#define CONTEXT_ARM64_ALL (CONTEXT_ARM64_FULL | CONTEXT_ARM64_DEBUG_REGISTERS | CONTEXT_ARM64_X18)
+#define CONTEXT_ARM64_ALL (CONTEXT_ARM64_FULL | CONTEXT_ARM64_DEBUG_REGISTERS | CONTEXT_ARM64_X18 | \
+                           CONTEXT_ARM64_FLOATING_POINT_LOW | CONTEXT_ARM64_FLOATING_POINT_HIGH)
 #define CONTEXT_CONTROL (CONTEXT_ARM64 | 0x1L)
 #define CONTEXT_INTEGER (CONTEXT_ARM64 | 0x2L)
 #define CONTEXT_FLOATING_POINT  (CONTEXT_ARM64 | 0x4L)
 #define CONTEXT_DEBUG_REGISTERS (CONTEXT_ARM64 | 0x8L)
 #define CONTEXT_X18 (CONTEXT_ARM64 | 0x10L)
 #define CONTEXT_FULL (CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_FLOATING_POINT)
-#define CONTEXT_ALL (CONTEXT_FULL | CONTEXT_DEBUG_REGISTERS | CONTEXT_X18)
+#define CONTEXT_XSTATE CONTEXT_ARM64_XSTATE
+#define CONTEXT_ALL CONTEXT_ARM64_ALL
 
 
 #define EXCEPTION_READ_FAULT    0
@@ -2648,8 +2664,11 @@ $include(riscv64/ketypes.h)
 #define CONTEXT_ARM64_DEBUG_REGISTERS (CONTEXT_ARM64 | 0x8L)
 #define CONTEXT_ARM64_X18 (CONTEXT_ARM64 | 0x10L)
 #define CONTEXT_ARM64_XSTATE (CONTEXT_ARM64 | 0x20L)
+#define CONTEXT_ARM64_FLOATING_POINT_LOW (CONTEXT_ARM64 | 0x40L)
+#define CONTEXT_ARM64_FLOATING_POINT_HIGH (CONTEXT_ARM64 | 0x80L)
 #define CONTEXT_ARM64_FULL (CONTEXT_ARM64_CONTROL | CONTEXT_ARM64_INTEGER | CONTEXT_ARM64_FLOATING_POINT)
-#define CONTEXT_ARM64_ALL (CONTEXT_ARM64_FULL | CONTEXT_ARM64_DEBUG_REGISTERS | CONTEXT_ARM64_X18)
+#define CONTEXT_ARM64_ALL (CONTEXT_ARM64_FULL | CONTEXT_ARM64_DEBUG_REGISTERS | CONTEXT_ARM64_X18 | \
+                           CONTEXT_ARM64_FLOATING_POINT_LOW | CONTEXT_ARM64_FLOATING_POINT_HIGH)
 #endif
 
 #ifndef CONTEXT_UNWOUND_TO_CALL
@@ -3491,6 +3510,7 @@ typedef struct _OSVERSIONINFOEXW {
   BYTE wReserved;
 } OSVERSIONINFOEXW, *POSVERSIONINFOEXW, *LPOSVERSIONINFOEXW, RTL_OSVERSIONINFOEXW, *PRTL_OSVERSIONINFOEXW;
 
+#pragma pack(push, 4)
 #pragma pack(push, 2)
 
 typedef struct _IMAGE_VXD_HEADER {
@@ -3756,7 +3776,7 @@ typedef struct _IMAGE_SYMBOL {
       DWORD Short;
       DWORD Long;
     } Name;
-    PBYTE LongName[2];
+    DWORD LongName[2];
   } N;
   DWORD Value;
   SHORT SectionNumber;
@@ -3845,7 +3865,7 @@ typedef enum ReplacesCorHdrNumericDefines {
   COMIMAGE_FLAGS_32BITPREFERRED = 0x00020000,
   COR_VERSION_MAJOR_V2 = 2,
   COR_VERSION_MAJOR = COR_VERSION_MAJOR_V2,
-  COR_VERSION_MINOR = 0,
+  COR_VERSION_MINOR = 5,
   COR_DELETED_NAME_LENGTH = 8,
   COR_VTABLEGAP_NAME_LENGTH = 8,
   NATIVE_TYPE_MAX_CB = 1,
@@ -4137,6 +4157,7 @@ typedef struct _IMAGE_LOAD_CONFIG_DIRECTORY32 {
   DWORD GuardXFGTableDispatchFunctionPointer;
   DWORD CastGuardOsDeterminedFailureMode;
   DWORD GuardMemcpyFunctionPointer;
+  DWORD UmaFunctionPointers;
 } IMAGE_LOAD_CONFIG_DIRECTORY32, *PIMAGE_LOAD_CONFIG_DIRECTORY32;
 
 typedef struct _IMAGE_LOAD_CONFIG_DIRECTORY64 {
@@ -4189,6 +4210,7 @@ typedef struct _IMAGE_LOAD_CONFIG_DIRECTORY64 {
   ULONGLONG GuardXFGTableDispatchFunctionPointer;
   ULONGLONG CastGuardOsDeterminedFailureMode;
   ULONGLONG GuardMemcpyFunctionPointer;
+  ULONGLONG UmaFunctionPointers;
 } IMAGE_LOAD_CONFIG_DIRECTORY64, *PIMAGE_LOAD_CONFIG_DIRECTORY64;
 
 #define IMAGE_GUARD_CF_INSTRUMENTED                    0x00000100
@@ -4282,6 +4304,7 @@ typedef struct _IMAGE_SEPARATE_DEBUG_HEADER {
   DWORD SectionAlignment;
   DWORD Reserved[2];
 } IMAGE_SEPARATE_DEBUG_HEADER, *PIMAGE_SEPARATE_DEBUG_HEADER;
+#pragma pack(pop)
 
 typedef enum _CM_SERVICE_NODE_TYPE {
   DriverType = SERVICE_KERNEL_DRIVER,
@@ -4393,8 +4416,10 @@ typedef union _FILE_SEGMENT_ELEMENT {
 #define JOB_OBJECT_UILIMIT_GLOBALATOMS      0x0020
 #define JOB_OBJECT_UILIMIT_DESKTOP          0x0040
 #define JOB_OBJECT_UILIMIT_EXITWINDOWS      0x0080
-#define JOB_OBJECT_UILIMIT_ALL              0x00FF
-#define JOB_OBJECT_UILIMIT_VALID_FLAGS      0x00FF
+#define JOB_OBJECT_UILIMIT_IME              0x0100
+#define JOB_OBJECT_UILIMIT_INJECTION        0x0200
+#define JOB_OBJECT_UILIMIT_ALL              0x03FF
+#define JOB_OBJECT_UI_VALID_FLAGS           0x03FF
 
 /* JOBOBJECT_SECURITY_LIMIT_INFORMATION.SecurityLimitFlags constants */
 #define JOB_OBJECT_SECURITY_NO_ADMIN          0x0001
@@ -4436,6 +4461,46 @@ typedef enum _JOBOBJECTINFOCLASS {
   JobObjectExtendedLimitInformation,
   JobObjectJobSetInformation,
   JobObjectGroupInformation,
+  JobObjectNotificationLimitInformation = 0xC,
+  JobObjectLimitViolationInformation = 0xD,
+  JobObjectGroupInformationEx = 0xE,
+  JobObjectCpuRateControlInformation = 0xF,
+  JobObjectCompletionFilter = 0x10,
+  JobObjectCompletionCounter = 0x11,
+  JobObjectReserved1Information = 0x12,
+  JobObjectReserved2Information = 0x13,
+  JobObjectReserved3Information = 0x14,
+  JobObjectReserved4Information = 0x15,
+  JobObjectReserved5Information = 0x16,
+  JobObjectReserved6Information = 0x17,
+  JobObjectReserved7Information = 0x18,
+  JobObjectReserved8Information = 0x19,
+  JobObjectReserved9Information = 0x1A,
+  JobObjectReserved10Information = 0x1B,
+  JobObjectReserved11Information = 0x1C,
+  JobObjectReserved12Information = 0x1D,
+  JobObjectReserved13Information = 0x1E,
+  JobObjectReserved14Information = 0x1F,
+  JobObjectNetRateControlInformation = 0x20,
+  JobObjectNotificationLimitInformation2 = 0x21,
+  JobObjectLimitViolationInformation2 = 0x22,
+  JobObjectCreateSilo = 0x23,
+  JobObjectSiloBasicInformation = 0x24,
+  JobObjectReserved15Information = 0x25,
+  JobObjectReserved16Information = 0x26,
+  JobObjectReserved17Information = 0x27,
+  JobObjectReserved18Information = 0x28,
+  JobObjectReserved19Information = 0x29,
+  JobObjectReserved20Information = 0x2A,
+  JobObjectReserved21Information = 0x2B,
+  JobObjectReserved22Information = 0x2C,
+  JobObjectReserved23Information = 0x2D,
+  JobObjectReserved24Information = 0x2E,
+  JobObjectReserved25Information = 0x2F,
+  JobObjectReserved26Information = 0x30,
+  JobObjectReserved27Information = 0x31,
+  JobObjectReserved28Information = 0x32,
+  JobObjectNetworkAccountingInformation = 0x33,
   MaxJobObjectInfoClass
 } JOBOBJECTINFOCLASS;
 
@@ -4467,7 +4532,13 @@ typedef enum _PROCESS_MITIGATION_POLICY {
   ProcessSystemCallFilterPolicy,
   ProcessPayloadRestrictionPolicy,
   ProcessChildProcessPolicy,
-  MaxProcessMitigationPolicy
+  MaxProcessMitigationPolicy,
+  ProcessSideChannelIsolationPolicy = 0xE,
+  ProcessUserShadowStackPolicy = 0xF,
+  ProcessRedirectionTrustPolicy = 0x10,
+  ProcessUserPointerAuthPolicy = 0x11,
+  ProcessSEHOPPolicy = 0x12,
+  ProcessActivationContextTrustPolicy = 0x13,
 } PROCESS_MITIGATION_POLICY, *PPROCESS_MITIGATION_POLICY;
 
 typedef struct _PROCESS_MITIGATION_ASLR_POLICY {
@@ -4996,7 +5067,7 @@ typedef enum _POWER_INFORMATION_LEVEL {
   SetPowerSettingValue,
   NotifyUserPowerSetting,
   PowerInformationLevelUnused0,
-  PowerInformationLevelUnused1,
+  SystemMonitorHiberBootPowerOff,
   SystemVideoState,
   TraceApplicationPowerMessage,
   TraceApplicationPowerMessageEnd,
@@ -5020,6 +5091,53 @@ typedef enum _POWER_INFORMATION_LEVEL {
   ProcessorIdleDomains,
   WakeTimerList,
   SystemHiberFileSize,
+  ProcessorIdleStatesHv,
+  ProcessorPerfStatesHv,
+  ProcessorPerfCapHv,
+  ProcessorSetIdle,
+  LogicalProcessorIdling,
+  UserPresence,
+  PowerSettingNotificationName,
+  GetPowerSettingValue,
+  IdleResiliency,
+  SessionRITState,
+  SessionConnectNotification,
+  SessionPowerCleanup,
+  SessionLockState,
+  SystemHiberbootState,
+  PlatformInformation,
+  PdcInvocation,
+  MonitorInvocation,
+  FirmwareTableInformationRegistered,
+  SetShutdownSelectedTime,
+  SuspendResumeInvocation,
+  PlmPowerRequestCreate,
+  ScreenOff,
+  CsDeviceNotification,
+  PlatformRole,
+  LastResumePerformance,
+  DisplayBurst,
+  ExitLatencySamplingPercentage,
+  RegisterSpmPowerSettings,
+  PlatformIdleStates,
+  ProcessorIdleVeto, // deprecated
+  PlatformIdleVeto,  // deprecated
+  SystemBatteryStatePrecise,
+  ThermalEvent,
+  PowerRequestActionInternal,
+  BatteryDeviceState,
+  PowerInformationInternal,
+  ThermalStandby,
+  SystemHiberFileType,
+  PhysicalPowerButtonPress,
+  QueryPotentialDripsConstraint,
+  EnergyTrackerCreate,
+  EnergyTrackerQuery,
+  UpdateBlackBoxRecorder,
+  SessionAllowExternalDmaDevices,
+  SendSuspendResumeNotification,
+  BlackBoxRecorderDirectAccessBuffer,
+  SystemPowerSourceState,
   PowerInformationLevelMaximum
 } POWER_INFORMATION_LEVEL;
 

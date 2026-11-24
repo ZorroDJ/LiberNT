@@ -62,7 +62,12 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("README.md", {p[1] for p in pairs})
         for source, destination in pairs:
             self.assertTrue((ROOT / source).is_file(), source)
-            self.assertEqual((ROOT / source).read_bytes(), (ROOT / destination).read_bytes(), destination)
+            expected = (ROOT / source).read_bytes()
+            actual = (ROOT / destination).read_bytes()
+            if Path(destination).suffix == ".inf":
+                expected = expected.replace(b"\r\n", b"\n")
+                actual = actual.replace(b"\r\n", b"\n")
+            self.assertEqual(expected, actual, destination)
 
     def test_guard_pins_the_event_revision(self):
         steps = workflow("readme-guard")["jobs"]["restore"]["steps"]

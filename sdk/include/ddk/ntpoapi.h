@@ -334,7 +334,7 @@ typedef enum _POWER_INFORMATION_LEVEL {
   SetPowerSettingValue,
   NotifyUserPowerSetting,
   PowerInformationLevelUnused0,
-  PowerInformationLevelUnused1,
+  SystemMonitorHiberBootPowerOff,
   SystemVideoState,
   TraceApplicationPowerMessage,
   TraceApplicationPowerMessageEnd,
@@ -358,6 +358,53 @@ typedef enum _POWER_INFORMATION_LEVEL {
   ProcessorIdleDomains,
   WakeTimerList,
   SystemHiberFileSize,
+  ProcessorIdleStatesHv,
+  ProcessorPerfStatesHv,
+  ProcessorPerfCapHv,
+  ProcessorSetIdle,
+  LogicalProcessorIdling,
+  UserPresence,
+  PowerSettingNotificationName,
+  GetPowerSettingValue,
+  IdleResiliency,
+  SessionRITState,
+  SessionConnectNotification,
+  SessionPowerCleanup,
+  SessionLockState,
+  SystemHiberbootState,
+  PlatformInformation,
+  PdcInvocation,
+  MonitorInvocation,
+  FirmwareTableInformationRegistered,
+  SetShutdownSelectedTime,
+  SuspendResumeInvocation,
+  PlmPowerRequestCreate,
+  ScreenOff,
+  CsDeviceNotification,
+  PlatformRole,
+  LastResumePerformance,
+  DisplayBurst,
+  ExitLatencySamplingPercentage,
+  RegisterSpmPowerSettings,
+  PlatformIdleStates,
+  ProcessorIdleVeto, // deprecated
+  PlatformIdleVeto,  // deprecated
+  SystemBatteryStatePrecise,
+  ThermalEvent,
+  PowerRequestActionInternal,
+  BatteryDeviceState,
+  PowerInformationInternal,
+  ThermalStandby,
+  SystemHiberFileType,
+  PhysicalPowerButtonPress,
+  QueryPotentialDripsConstraint,
+  EnergyTrackerCreate,
+  EnergyTrackerQuery,
+  UpdateBlackBoxRecorder,
+  SessionAllowExternalDmaDevices,
+  SendSuspendResumeNotification,
+  BlackBoxRecorderDirectAccessBuffer,
+  SystemPowerSourceState,
   PowerInformationLevelMaximum
 } POWER_INFORMATION_LEVEL;
 
@@ -786,4 +833,757 @@ typedef struct _POWER_ACTION_POLICY {
 }
 #endif
 
+typedef enum _HIBERFILE_BUCKET_SIZE {
+    HiberFileBucket1GB = 0,
+    HiberFileBucket2GB = 1,
+    HiberFileBucket4GB = 2,
+    HiberFileBucket8GB = 3,
+    HiberFileBucket16GB = 4,
+    HiberFileBucket32GB = 5,
+    HiberFileBucketUnlimited = 6,
+    HiberFileBucketMax = 7
+} HIBERFILE_BUCKET_SIZE, *PHIBERFILE_BUCKET_SIZE;
+
+typedef enum _PO_CS_DEVICE_NOTIFICATION_TYPE {
+    PoCsDeviceNotificationStorage = 0,
+    PoCsDeviceNotificationWiFi = 1,
+    PoCsDeviceNotificationMbn = 2,
+    PoCsDeviceNotificationAudio = 3,
+    PoCsDeviceNotificationEthernet = 4,
+    PoCsDeviceNotificationMaximum = 5
+} PO_CS_DEVICE_NOTIFICATION_TYPE;
+
+typedef enum _PO_HIBER_FORCE_DISABLE_REASON {
+    PoHiberForceDisableReasonPolicy = 0,
+    PoHiberForceDisableReasonGuardedHost = 1,
+    PoHiberForceDisableReasonMax = 2
+} PO_HIBER_FORCE_DISABLE_REASON, *PPO_HIBER_FORCE_DISABLE_REASON;
+
+typedef enum _REQUESTER_TYPE {
+    KernelRequester = 0,
+    UserProcessRequester = 1,
+    UserSharedServiceRequester = 2
+} REQUESTER_TYPE, *PREQUESTER_TYPE;
+
+typedef enum PO_FIXED_WAKE_SOURCE_TYPE {
+    FixedWakeSourcePowerButton = 0,
+    FixedWakeSourceSleepButton = 1,
+    FixedWakeSourceRtc = 2,
+    FixedWakeSourceDozeToHibernate = 3
+} PO_FIXED_WAKE_SOURCE_TYPE, *PPO_FIXED_WAKE_SOURCE_TYPE;
+
+typedef enum PO_INTERNAL_WAKE_SOURCE_TYPE {
+    InternalWakeSourceDozeToHibernate = 0,
+    InternalWakeSourcePredictedUserPresence = 1,
+    InternalWakeSourceTimerOverride = 2
+} PO_INTERNAL_WAKE_SOURCE_TYPE, *PPO_INTERNAL_WAKE_SOURCE_TYPE;
+
+typedef enum PO_WAKE_SOURCE_TYPE {
+    DeviceWakeSourceType = 0,
+    FixedWakeSourceType = 1,
+    TimerWakeSourceType = 2,
+    TimerPresumedWakeSourceType = 3,
+    InternalWakeSourceType = 4
+} PO_WAKE_SOURCE_TYPE, *PPO_WAKE_SOURCE_TYPE;
+
+typedef struct _HIBERFILE_BUCKET {
+  ULONG64 MaxPhysicalMemory;
+  ULONG PhysicalMemoryPercent[3];
+} HIBERFILE_BUCKET, *PHIBERFILE_BUCKET;
+
+typedef struct _PO_SPR_ACTIVE_SESSION_DATA {
+  BOOLEAN Start;
+  GUID ActiveSessionGuid;
+} PO_SPR_ACTIVE_SESSION_DATA, *PPO_SPR_ACTIVE_SESSION_DATA;
+
+typedef struct _PO_WAKE_SOURCE_HEADER {
+  PO_WAKE_SOURCE_TYPE Type;
+  ULONG Size;
+} PO_WAKE_SOURCE_HEADER, *PPO_WAKE_SOURCE_HEADER;
+
+typedef struct _PO_WAKE_SOURCE_DEVICE {
+  PO_WAKE_SOURCE_HEADER Header;
+  WCHAR InstancePath[1];
+} PO_WAKE_SOURCE_DEVICE, *PPO_WAKE_SOURCE_DEVICE;
+
+typedef struct _PO_WAKE_SOURCE_FIXED {
+  PO_WAKE_SOURCE_HEADER Header;
+  PO_FIXED_WAKE_SOURCE_TYPE FixedWakeSourceType;
+} PO_WAKE_SOURCE_FIXED, *PPO_WAKE_SOURCE_FIXED;
+
+typedef struct _PO_WAKE_SOURCE_HISTORY {
+  ULONG Count;
+  ULONG Offsets[1];
+} PO_WAKE_SOURCE_HISTORY, *PPO_WAKE_SOURCE_HISTORY;
+
+typedef struct _PO_WAKE_SOURCE_INFO {
+  ULONG Count;
+  ULONG Offsets[1];
+} PO_WAKE_SOURCE_INFO, *PPO_WAKE_SOURCE_INFO;
+
+typedef struct _PO_WAKE_SOURCE_INTERNAL {
+  PO_WAKE_SOURCE_HEADER Header;
+  PO_INTERNAL_WAKE_SOURCE_TYPE InternalWakeSourceType;
+} PO_WAKE_SOURCE_INTERNAL, *PPO_WAKE_SOURCE_INTERNAL;
+
+typedef struct _PROCESSOR_IDLE_STATE {
+  UCHAR StateType;
+  ULONG StateFlags;
+  ULONG HardwareLatency;
+  ULONG Power;
+  ULONG_PTR Context;
+  PPROCESSOR_IDLE_HANDLER Handler;
+} PROCESSOR_IDLE_STATE, *PPROCESSOR_IDLE_STATE;
+
+typedef struct _PROCESSOR_IDLE_STATES {
+  ULONG Size;
+  ULONG Revision;
+  ULONG Count;
+  ULONG Type;
+  KAFFINITY TargetProcessors;
+  PROCESSOR_IDLE_STATE State[1];
+} PROCESSOR_IDLE_STATES, *PPROCESSOR_IDLE_STATES;
+
+typedef struct _SYSTEM_HIBERFILE_INFORMATION {
+  ULONG NumberOfMcbPairs;
+  LARGE_INTEGER Mcb[1];
+} SYSTEM_HIBERFILE_INFORMATION, *PSYSTEM_HIBERFILE_INFORMATION;
+
+typedef struct _SYSTEM_POWER_SOURCE_STATE {
+  SYSTEM_BATTERY_STATE BatteryState;
+  ULONG InstantaneousPeakPower;
+  ULONG InstantaneousPeakPeriod;
+  ULONG SustainablePeakPower;
+  ULONG SustainablePeakPeriod;
+  ULONG PeakPower;
+  ULONG MaxOutputPower;
+  ULONG MaxInputPower;
+  LONG BatteryRateInCurrent;
+  ULONG BatteryVoltage;
+} SYSTEM_POWER_SOURCE_STATE, *PSYSTEM_POWER_SOURCE_STATE;
+
+typedef struct PPM_IDLE_STATE_ACCOUNTING {
+  ULONG IdleTransitions;
+  ULONG FailedTransitions;
+  ULONG InvalidBucketIndex;
+  ULONG64 TotalTime;
+  ULONG IdleTimeBuckets[6];
+} PPM_IDLE_STATE_ACCOUNTING, *PPPM_IDLE_STATE_ACCOUNTING;
+
+typedef struct PPM_IDLE_ACCOUNTING {
+  ULONG StateCount;
+  ULONG TotalTransitions;
+  ULONG ResetCount;
+  ULONG64 StartTime;
+  PPM_IDLE_STATE_ACCOUNTING State[1];
+} PPM_IDLE_ACCOUNTING, *PPPM_IDLE_ACCOUNTING;
+
+typedef struct PPM_IDLE_STATE_BUCKET_EX {
+  ULONG64 TotalTimeUs;
+  ULONG MinTimeUs;
+  ULONG MaxTimeUs;
+  ULONG Count;
+} PPM_IDLE_STATE_BUCKET_EX, *PPPM_IDLE_STATE_BUCKET_EX;
+
+typedef struct PPM_IDLE_STATE_ACCOUNTING_EX {
+  ULONG64 TotalTime;
+  ULONG IdleTransitions;
+  ULONG FailedTransitions;
+  ULONG InvalidBucketIndex;
+  ULONG MinTimeUs;
+  ULONG MaxTimeUs;
+  ULONG CancelledTransitions;
+  PPM_IDLE_STATE_BUCKET_EX IdleTimeBuckets[16];
+} PPM_IDLE_STATE_ACCOUNTING_EX, *PPPM_IDLE_STATE_ACCOUNTING_EX;
+
+typedef struct PPM_IDLE_ACCOUNTING_EX {
+  ULONG StateCount;
+  ULONG TotalTransitions;
+  ULONG ResetCount;
+  ULONG AbortCount;
+  ULONG64 StartTime;
+  PPM_IDLE_STATE_ACCOUNTING_EX State[1];
+} PPM_IDLE_ACCOUNTING_EX, *PPPM_IDLE_ACCOUNTING_EX;
+
+typedef struct PPM_IDLESTATE_EVENT {
+  ULONG NewState;
+  ULONG OldState;
+  ULONG64 Processors;
+} PPM_IDLESTATE_EVENT, *PPPM_IDLESTATE_EVENT;
+
+typedef struct PPM_PERFSTATE_DOMAIN_EVENT {
+  ULONG State;
+  ULONG Latency;
+  ULONG Speed;
+  ULONG64 Processors;
+} PPM_PERFSTATE_DOMAIN_EVENT, *PPPM_PERFSTATE_DOMAIN_EVENT;
+
+typedef struct PPM_PERFSTATE_EVENT {
+  ULONG State;
+  ULONG Status;
+  ULONG Latency;
+  ULONG Speed;
+  ULONG Processor;
+} PPM_PERFSTATE_EVENT, *PPPM_PERFSTATE_EVENT;
+
+typedef struct PPM_THERMAL_POLICY_EVENT {
+  UCHAR Mode;
+  ULONG64 Processors;
+} PPM_THERMAL_POLICY_EVENT, *PPPM_THERMAL_POLICY_EVENT;
+
+typedef struct PPM_THERMALCHANGE_EVENT {
+  ULONG ThermalConstraint;
+  ULONG64 Processors;
+} PPM_THERMALCHANGE_EVENT, *PPPM_THERMALCHANGE_EVENT;
+
+typedef struct PPM_WMI_IDLE_STATE {
+  ULONG Latency;
+  ULONG Power;
+  ULONG TimeCheck;
+  UCHAR PromotePercent;
+  UCHAR DemotePercent;
+  UCHAR StateType;
+  UCHAR Reserved;
+  ULONG StateFlags;
+  ULONG Context;
+  ULONG IdleHandler;
+  ULONG Reserved1;
+} PPM_WMI_IDLE_STATE, *PPPM_WMI_IDLE_STATE;
+
+typedef struct PPM_WMI_IDLE_STATES {
+  ULONG Type;
+  ULONG Count;
+  ULONG TargetState;
+  ULONG OldState;
+  ULONG64 TargetProcessors;
+  PPM_WMI_IDLE_STATE State[1];
+} PPM_WMI_IDLE_STATES, *PPPM_WMI_IDLE_STATES;
+
+typedef struct PPM_WMI_IDLE_STATES_EX {
+  ULONG Type;
+  ULONG Count;
+  ULONG TargetState;
+  ULONG OldState;
+  PVOID TargetProcessors;
+  PPM_WMI_IDLE_STATE State[1];
+} PPM_WMI_IDLE_STATES_EX, *PPPM_WMI_IDLE_STATES_EX;
+
+typedef struct PPM_WMI_LEGACY_PERFSTATE {
+  ULONG Frequency;
+  ULONG Flags;
+  ULONG PercentFrequency;
+} PPM_WMI_LEGACY_PERFSTATE, *PPPM_WMI_LEGACY_PERFSTATE;
+
+typedef struct PPM_WMI_PERF_STATE {
+  ULONG Frequency;
+  ULONG Power;
+  UCHAR PercentFrequency;
+  UCHAR IncreaseLevel;
+  UCHAR DecreaseLevel;
+  UCHAR Type;
+  ULONG IncreaseTime;
+  ULONG DecreaseTime;
+  ULONG64 Control;
+  ULONG64 Status;
+  ULONG HitCount;
+  ULONG Reserved1;
+  ULONG64 Reserved2;
+  ULONG64 Reserved3;
+} PPM_WMI_PERF_STATE, *PPPM_WMI_PERF_STATE;
+
+typedef struct PPM_WMI_PERF_STATES {
+  ULONG Count;
+  ULONG MaxFrequency;
+  ULONG CurrentState;
+  ULONG MaxPerfState;
+  ULONG MinPerfState;
+  ULONG LowestPerfState;
+  ULONG ThermalConstraint;
+  UCHAR BusyAdjThreshold;
+  UCHAR PolicyType;
+  UCHAR Type;
+  UCHAR Reserved;
+  ULONG TimerInterval;
+  ULONG64 TargetProcessors;
+  ULONG PStateHandler;
+  ULONG PStateContext;
+  ULONG TStateHandler;
+  ULONG TStateContext;
+  ULONG FeedbackHandler;
+  ULONG Reserved1;
+  ULONG64 Reserved2;
+  PPM_WMI_PERF_STATE State[1];
+} PPM_WMI_PERF_STATES, *PPPM_WMI_PERF_STATES;
+
+typedef struct PPM_WMI_PERF_STATES_EX {
+  ULONG Count;
+  ULONG MaxFrequency;
+  ULONG CurrentState;
+  ULONG MaxPerfState;
+  ULONG MinPerfState;
+  ULONG LowestPerfState;
+  ULONG ThermalConstraint;
+  UCHAR BusyAdjThreshold;
+  UCHAR PolicyType;
+  UCHAR Type;
+  UCHAR Reserved;
+  ULONG TimerInterval;
+  PVOID TargetProcessors;
+  ULONG PStateHandler;
+  ULONG PStateContext;
+  ULONG TStateHandler;
+  ULONG TStateContext;
+  ULONG FeedbackHandler;
+  ULONG Reserved1;
+  ULONG64 Reserved2;
+  PPM_WMI_PERF_STATE State[1];
+} PPM_WMI_PERF_STATES_EX, *PPPM_WMI_PERF_STATES_EX;
+
+typedef struct PROCESSOR_IDLESTATE_INFO {
+  ULONG TimeCheck;
+  UCHAR DemotePercent;
+  UCHAR PromotePercent;
+  UCHAR Spare[2];
+} PROCESSOR_IDLESTATE_INFO, *PPROCESSOR_IDLESTATE_INFO;
+
+#define _NTPOAPI_
+#define GUID_HUPR_ADAPTIVE_DIM_TIMEOUT GUID_HUPR_ADAPTIVE_INATTENTIVE_DIM_TIMEOUT
+#define GUID_HUPR_ADAPTIVE_DISPLAY_TIMEOUT GUID_HUPR_ADAPTIVE_AWAY_DISPLAY_TIMEOUT
+#define PERFSTATE_POLICY_CHANGE_DECREASE_MAX 2
+#define PERFSTATE_POLICY_CHANGE_INCREASE_MAX 3
+#define PO_SLEEP_DISABLE_ALL 0xF
+#define PO_SLEEP_DISABLE_S1 1
+#define PO_SLEEP_DISABLE_S2 2
+#define PO_SLEEP_DISABLE_S3 4
+#define PO_SLEEP_DISABLE_S4 8
+#define POWERBUTTON_ACTION_INDEX_NOTHING 0
+#define PROCESSOR_PERF_BOOST_MODE_MAX 6
+
+struct _DIAGNOSTIC_BUFFER
+{
+    SIZE_T Size;
+    REQUESTER_TYPE CallerType;
+    union
+    {
+        struct
+        {
+            SIZE_T ProcessImageNameOffset;
+            ULONG ProcessId;
+            ULONG ServiceTag;
+        };
+        struct
+        {
+            SIZE_T DeviceDescriptionOffset;
+            SIZE_T DevicePathOffset;
+        };
+    };
+    SIZE_T ReasonOffset;
+};
+
+struct _REASON_BUFFER
+{
+    ULONG Flags;
+    union
+    {
+        struct
+        {
+            SIZE_T ResourceFileNameOffset;
+            USHORT ResourceReasonId;
+            ULONG StringCount;
+            SIZE_T SubstitutionStringsOffset;
+        };
+        SIZE_T SimpleStringOffset;
+    };
+};
+
+typedef struct _DIAGNOSTIC_BUFFER DIAGNOSTIC_BUFFER;
+
+struct _PO_WAKE_SOURCE_TIMER
+{
+    PO_WAKE_SOURCE_HEADER Header;
+    DIAGNOSTIC_BUFFER Reason;
+};
+
+struct _WAKE_TIMER_INFO
+{
+    SIZE_T OffsetToNext;
+    ULARGE_INTEGER DueTime;
+    ULONG Period;
+    DIAGNOSTIC_BUFFER ReasonContext;
+};
+
+typedef struct _DIAGNOSTIC_BUFFER *PDIAGNOSTIC_BUFFER;
+
+typedef struct _PO_WAKE_SOURCE_TIMER PO_WAKE_SOURCE_TIMER;
+
+typedef struct _PO_WAKE_SOURCE_TIMER *PPO_WAKE_SOURCE_TIMER;
+
+typedef struct _REASON_BUFFER *PREASON_BUFFER;
+
+typedef struct PROCESSOR_IDLESTATE_POLICY PROCESSOR_IDLESTATE_POLICY;
+
+struct PROCESSOR_IDLESTATE_POLICY
+{
+    USHORT Revision;
+    union
+    {
+        USHORT AsUSHORT;
+        struct
+        {
+            USHORT AllowScaling : 1;
+            USHORT Disabled : 1;
+            USHORT Reserved : 14;
+        };
+    } Flags;
+    ULONG PolicyCount;
+    PROCESSOR_IDLESTATE_INFO Policy[3];
+};
+
+typedef struct PROCESSOR_IDLESTATE_POLICY *PPROCESSOR_IDLESTATE_POLICY;
+
+typedef struct PROCESSOR_PERFSTATE_POLICY PROCESSOR_PERFSTATE_POLICY;
+
+struct PROCESSOR_PERFSTATE_POLICY
+{
+    ULONG Revision;
+    UCHAR MaxThrottle;
+    UCHAR MinThrottle;
+    UCHAR BusyAdjThreshold;
+    union
+    {
+        UCHAR Spare;
+        union
+        {
+            UCHAR AsUCHAR;
+            struct
+            {
+                UCHAR NoDomainAccounting : 1;
+                UCHAR IncreasePolicy : 2;
+                UCHAR DecreasePolicy : 2;
+                UCHAR Reserved : 3;
+            };
+        } Flags;
+    };
+    ULONG TimeCheck;
+    ULONG IncreaseTime;
+    ULONG DecreaseTime;
+    ULONG IncreasePercent;
+    ULONG DecreasePercent;
+};
+
+typedef struct PROCESSOR_PERFSTATE_POLICY *PPROCESSOR_PERFSTATE_POLICY;
+
+typedef struct _WAKE_TIMER_INFO *PWAKE_TIMER_INFO;
+
+typedef struct _REASON_BUFFER REASON_BUFFER;
+
+typedef struct _WAKE_TIMER_INFO WAKE_TIMER_INFO;
+
 #endif /* __NTPOAPI_H */
+
+#ifndef ACPI_PPM_HARDWARE_ALL
+#define ACPI_PPM_HARDWARE_ALL 0xFE
+#endif
+#ifndef ACPI_PPM_SOFTWARE_ALL
+#define ACPI_PPM_SOFTWARE_ALL 0xFC
+#endif
+#ifndef ACPI_PPM_SOFTWARE_ANY
+#define ACPI_PPM_SOFTWARE_ANY 0xFD
+#endif
+#ifndef BATTERY_DISCHARGE_FLAGS_ENABLE
+#define BATTERY_DISCHARGE_FLAGS_ENABLE 0x80000000
+#endif
+#ifndef BATTERY_DISCHARGE_FLAGS_EVENTCODE_MASK
+#define BATTERY_DISCHARGE_FLAGS_EVENTCODE_MASK 0x00000007
+#endif
+#ifndef HIBERFILE_TYPE_FULL
+#define HIBERFILE_TYPE_FULL 0x02
+#endif
+#ifndef HIBERFILE_TYPE_MAX
+#define HIBERFILE_TYPE_MAX 0x03
+#endif
+#ifndef HIBERFILE_TYPE_NONE
+#define HIBERFILE_TYPE_NONE 0x00
+#endif
+#ifndef HIBERFILE_TYPE_REDUCED
+#define HIBERFILE_TYPE_REDUCED 0x01
+#endif
+#ifndef IDLE_STATE_FLAGS_C1_HLT
+#define IDLE_STATE_FLAGS_C1_HLT 0x01
+#endif
+#ifndef IDLE_STATE_FLAGS_C1_IO_HLT
+#define IDLE_STATE_FLAGS_C1_IO_HLT 0x02
+#endif
+#ifndef IDLE_STATE_FLAGS_IO
+#define IDLE_STATE_FLAGS_IO 0x04
+#endif
+#ifndef IDLE_STATE_FLAGS_MWAIT
+#define IDLE_STATE_FLAGS_MWAIT 0x08
+#endif
+#ifndef MS_PPM_SOFTWARE_ALL
+#define MS_PPM_SOFTWARE_ALL 0x1
+#endif
+#ifndef PARKING_TOPOLOGY_POLICY_DISABLED
+#define PARKING_TOPOLOGY_POLICY_DISABLED 0
+#endif
+#ifndef PARKING_TOPOLOGY_POLICY_ROUNDROBIN
+#define PARKING_TOPOLOGY_POLICY_ROUNDROBIN 1
+#endif
+#ifndef PARKING_TOPOLOGY_POLICY_SEQUENTIAL
+#define PARKING_TOPOLOGY_POLICY_SEQUENTIAL 2
+#endif
+#ifndef PERFSTATE_POLICY_CHANGE_IDEAL_AGGRESSIVE
+#define PERFSTATE_POLICY_CHANGE_IDEAL_AGGRESSIVE 3
+#endif
+#ifndef POWERBUTTON_ACTION_INDEX_HIBERNATE
+#define POWERBUTTON_ACTION_INDEX_HIBERNATE 2
+#endif
+#ifndef POWERBUTTON_ACTION_INDEX_SHUTDOWN
+#define POWERBUTTON_ACTION_INDEX_SHUTDOWN 3
+#endif
+#ifndef POWERBUTTON_ACTION_INDEX_SLEEP
+#define POWERBUTTON_ACTION_INDEX_SLEEP 1
+#endif
+#ifndef POWERBUTTON_ACTION_INDEX_TURN_OFF_THE_DISPLAY
+#define POWERBUTTON_ACTION_INDEX_TURN_OFF_THE_DISPLAY 4
+#endif
+#ifndef POWERBUTTON_ACTION_VALUE_HIBERNATE
+#define POWERBUTTON_ACTION_VALUE_HIBERNATE 3
+#endif
+#ifndef POWERBUTTON_ACTION_VALUE_NOTHING
+#define POWERBUTTON_ACTION_VALUE_NOTHING 0
+#endif
+#ifndef POWERBUTTON_ACTION_VALUE_SHUTDOWN
+#define POWERBUTTON_ACTION_VALUE_SHUTDOWN 6
+#endif
+#ifndef POWERBUTTON_ACTION_VALUE_SLEEP
+#define POWERBUTTON_ACTION_VALUE_SLEEP 2
+#endif
+#ifndef POWERBUTTON_ACTION_VALUE_TURN_OFF_THE_DISPLAY
+#define POWERBUTTON_ACTION_VALUE_TURN_OFF_THE_DISPLAY 8
+#endif
+#ifndef POWER_ACTION_ACPI_CRITICAL
+#define POWER_ACTION_ACPI_CRITICAL 0x01000000
+#endif
+#ifndef POWER_ACTION_ACPI_USER_NOTIFY
+#define POWER_ACTION_ACPI_USER_NOTIFY 0x02000000
+#endif
+#ifndef POWER_ACTION_DIRECTED_DRIPS
+#define POWER_ACTION_DIRECTED_DRIPS 0x04000000
+#endif
+#ifndef POWER_ACTION_DOZE_TO_HIBERNATE
+#define POWER_ACTION_DOZE_TO_HIBERNATE 0x00000020
+#endif
+#ifndef POWER_ACTION_HIBERBOOT
+#define POWER_ACTION_HIBERBOOT 0x00000008
+#endif
+#ifndef POWER_ACTION_PSEUDO_TRANSITION
+#define POWER_ACTION_PSEUDO_TRANSITION 0x08000000
+#endif
+#ifndef POWER_ACTION_USER_NOTIFY
+#define POWER_ACTION_USER_NOTIFY 0x00000010
+#endif
+#ifndef POWER_CONNECTIVITY_IN_STANDBY_DISABLED
+#define POWER_CONNECTIVITY_IN_STANDBY_DISABLED 0
+#endif
+#ifndef POWER_CONNECTIVITY_IN_STANDBY_ENABLED
+#define POWER_CONNECTIVITY_IN_STANDBY_ENABLED 1
+#endif
+#ifndef POWER_CONNECTIVITY_IN_STANDBY_SYSTEM_MANAGED
+#define POWER_CONNECTIVITY_IN_STANDBY_SYSTEM_MANAGED 2
+#endif
+#ifndef POWER_DISCONNECTED_STANDBY_MODE_AGGRESSIVE
+#define POWER_DISCONNECTED_STANDBY_MODE_AGGRESSIVE 1
+#endif
+#ifndef POWER_DISCONNECTED_STANDBY_MODE_NORMAL
+#define POWER_DISCONNECTED_STANDBY_MODE_NORMAL 0
+#endif
+#ifndef POWER_STATE_HANDLER_TYPE_MAX
+#define POWER_STATE_HANDLER_TYPE_MAX 8
+#endif
+#ifndef POWER_USER_NOTIFY_FORCED_SHUTDOWN
+#define POWER_USER_NOTIFY_FORCED_SHUTDOWN 0x00000020
+#endif
+#ifndef PO_PERFORMANCE_LIMIT_DOMAIN_DEPENDENCY
+#define PO_PERFORMANCE_LIMIT_DOMAIN_DEPENDENCY 0x10
+#endif
+#ifndef PO_PERFORMANCE_LIMIT_OS_POLICY
+#define PO_PERFORMANCE_LIMIT_OS_POLICY 0x01
+#endif
+#ifndef PO_PERFORMANCE_LIMIT_PLATFORM_UNSPECIFIED
+#define PO_PERFORMANCE_LIMIT_PLATFORM_UNSPECIFIED 0x02
+#endif
+#ifndef PO_PERFORMANCE_LIMIT_POWER
+#define PO_PERFORMANCE_LIMIT_POWER 0x08
+#endif
+#ifndef PO_PERFORMANCE_LIMIT_THERMAL
+#define PO_PERFORMANCE_LIMIT_THERMAL 0x04
+#endif
+#ifndef PPM_FIRMWARE_ACPI1C2
+#define PPM_FIRMWARE_ACPI1C2 0x00000001
+#endif
+#ifndef PPM_FIRMWARE_ACPI1C3
+#define PPM_FIRMWARE_ACPI1C3 0x00000002
+#endif
+#ifndef PPM_FIRMWARE_ACPI1TSTATES
+#define PPM_FIRMWARE_ACPI1TSTATES 0x00000004
+#endif
+#ifndef PPM_FIRMWARE_CPC
+#define PPM_FIRMWARE_CPC 0x00040000
+#endif
+#ifndef PPM_FIRMWARE_CSD
+#define PPM_FIRMWARE_CSD 0x00000010
+#endif
+#ifndef PPM_FIRMWARE_CST
+#define PPM_FIRMWARE_CST 0x00000008
+#endif
+#ifndef PPM_FIRMWARE_LPI
+#define PPM_FIRMWARE_LPI 0x00080000
+#endif
+#ifndef PPM_FIRMWARE_OSC
+#define PPM_FIRMWARE_OSC 0x00010000
+#endif
+#ifndef PPM_FIRMWARE_PCCH
+#define PPM_FIRMWARE_PCCH 0x00004000
+#endif
+#ifndef PPM_FIRMWARE_PCCP
+#define PPM_FIRMWARE_PCCP 0x00008000
+#endif
+#ifndef PPM_FIRMWARE_PCT
+#define PPM_FIRMWARE_PCT 0x00000020
+#endif
+#ifndef PPM_FIRMWARE_PDC
+#define PPM_FIRMWARE_PDC 0x00020000
+#endif
+#ifndef PPM_FIRMWARE_PPC
+#define PPM_FIRMWARE_PPC 0x00000100
+#endif
+#ifndef PPM_FIRMWARE_PSD
+#define PPM_FIRMWARE_PSD 0x00000200
+#endif
+#ifndef PPM_FIRMWARE_PSS
+#define PPM_FIRMWARE_PSS 0x00000040
+#endif
+#ifndef PPM_FIRMWARE_PTC
+#define PPM_FIRMWARE_PTC 0x00000400
+#endif
+#ifndef PPM_FIRMWARE_TPC
+#define PPM_FIRMWARE_TPC 0x00001000
+#endif
+#ifndef PPM_FIRMWARE_TSD
+#define PPM_FIRMWARE_TSD 0x00002000
+#endif
+#ifndef PPM_FIRMWARE_TSS
+#define PPM_FIRMWARE_TSS 0x00000800
+#endif
+#ifndef PPM_FIRMWARE_XPSS
+#define PPM_FIRMWARE_XPSS 0x00000080
+#endif
+#ifndef PPM_IDLE_IMPLEMENTATION_CSTATES
+#define PPM_IDLE_IMPLEMENTATION_CSTATES 0x00000001
+#endif
+#ifndef PPM_IDLE_IMPLEMENTATION_LPISTATES
+#define PPM_IDLE_IMPLEMENTATION_LPISTATES 0x00000004
+#endif
+#ifndef PPM_IDLE_IMPLEMENTATION_MICROPEP
+#define PPM_IDLE_IMPLEMENTATION_MICROPEP 0x00000003
+#endif
+#ifndef PPM_IDLE_IMPLEMENTATION_NONE
+#define PPM_IDLE_IMPLEMENTATION_NONE 0x00000000
+#endif
+#ifndef PPM_IDLE_IMPLEMENTATION_PEP
+#define PPM_IDLE_IMPLEMENTATION_PEP 0x00000002
+#endif
+#ifndef PPM_PERFORMANCE_IMPLEMENTATION_CPPC
+#define PPM_PERFORMANCE_IMPLEMENTATION_CPPC 0x00000003
+#endif
+#ifndef PPM_PERFORMANCE_IMPLEMENTATION_NONE
+#define PPM_PERFORMANCE_IMPLEMENTATION_NONE 0x00000000
+#endif
+#ifndef PPM_PERFORMANCE_IMPLEMENTATION_PCCV1
+#define PPM_PERFORMANCE_IMPLEMENTATION_PCCV1 0x00000002
+#endif
+#ifndef PPM_PERFORMANCE_IMPLEMENTATION_PEP
+#define PPM_PERFORMANCE_IMPLEMENTATION_PEP 0x00000004
+#endif
+#ifndef PPM_PERFORMANCE_IMPLEMENTATION_PSTATES
+#define PPM_PERFORMANCE_IMPLEMENTATION_PSTATES 0x00000001
+#endif
+#ifndef PROCESSOR_DUTY_CYCLING_DISABLED
+#define PROCESSOR_DUTY_CYCLING_DISABLED 0
+#endif
+#ifndef PROCESSOR_DUTY_CYCLING_ENABLED
+#define PROCESSOR_DUTY_CYCLING_ENABLED 1
+#endif
+#ifndef PROCESSOR_IDLESTATE_POLICY_COUNT
+#define PROCESSOR_IDLESTATE_POLICY_COUNT 0x3
+#endif
+#ifndef PROCESSOR_PERF_BOOST_MODE_AGGRESSIVE
+#define PROCESSOR_PERF_BOOST_MODE_AGGRESSIVE 2
+#endif
+#ifndef PROCESSOR_PERF_BOOST_MODE_AGGRESSIVE_AT_GUARANTEED
+#define PROCESSOR_PERF_BOOST_MODE_AGGRESSIVE_AT_GUARANTEED 5
+#endif
+#ifndef PROCESSOR_PERF_BOOST_MODE_DISABLED
+#define PROCESSOR_PERF_BOOST_MODE_DISABLED 0
+#endif
+#ifndef PROCESSOR_PERF_BOOST_MODE_EFFICIENT_AGGRESSIVE
+#define PROCESSOR_PERF_BOOST_MODE_EFFICIENT_AGGRESSIVE 4
+#endif
+#ifndef PROCESSOR_PERF_BOOST_MODE_EFFICIENT_AGGRESSIVE_AT_GUARANTEED
+#define PROCESSOR_PERF_BOOST_MODE_EFFICIENT_AGGRESSIVE_AT_GUARANTEED 6
+#endif
+#ifndef PROCESSOR_PERF_BOOST_MODE_EFFICIENT_ENABLED
+#define PROCESSOR_PERF_BOOST_MODE_EFFICIENT_ENABLED 3
+#endif
+#ifndef PROCESSOR_PERF_BOOST_MODE_ENABLED
+#define PROCESSOR_PERF_BOOST_MODE_ENABLED 1
+#endif
+#ifndef PROCESSOR_PERF_ENERGY_PREFERENCE
+#define PROCESSOR_PERF_ENERGY_PREFERENCE 0
+#endif
+#ifndef PROCESSOR_PERF_MAXIMUM_ACTIVITY_WINDOW
+#define PROCESSOR_PERF_MAXIMUM_ACTIVITY_WINDOW 1270000000
+#endif
+#ifndef PROCESSOR_PERF_MINIMUM_ACTIVITY_WINDOW
+#define PROCESSOR_PERF_MINIMUM_ACTIVITY_WINDOW 0
+#endif
+#ifndef PROCESSOR_PERF_PERFORMANCE_PREFERENCE
+#define PROCESSOR_PERF_PERFORMANCE_PREFERENCE 0xff
+#endif
+#ifndef PROCESSOR_THROTTLE_AUTOMATIC
+#define PROCESSOR_THROTTLE_AUTOMATIC 2
+#endif
+#ifndef PROCESSOR_THROTTLE_DISABLED
+#define PROCESSOR_THROTTLE_DISABLED 0
+#endif
+#ifndef PROCESSOR_THROTTLE_ENABLED
+#define PROCESSOR_THROTTLE_ENABLED 1
+#endif
+#ifndef PROC_IDLE_BUCKET_COUNT
+#define PROC_IDLE_BUCKET_COUNT 6
+#endif
+#ifndef PROC_IDLE_BUCKET_COUNT_EX
+#define PROC_IDLE_BUCKET_COUNT_EX 16
+#endif
+#ifndef SMT_UNPARKING_POLICY_CORE
+#define SMT_UNPARKING_POLICY_CORE 0
+#endif
+#ifndef SMT_UNPARKING_POLICY_CORE_PER_THREAD
+#define SMT_UNPARKING_POLICY_CORE_PER_THREAD 1
+#endif
+#ifndef SMT_UNPARKING_POLICY_LP_ROUNDROBIN
+#define SMT_UNPARKING_POLICY_LP_ROUNDROBIN 2
+#endif
+#ifndef SMT_UNPARKING_POLICY_LP_SEQUENTIAL
+#define SMT_UNPARKING_POLICY_LP_SEQUENTIAL 3
+#endif
+#ifndef THERMAL_EVENT_HIBERNATE
+#define THERMAL_EVENT_HIBERNATE 1
+#endif
+#ifndef THERMAL_EVENT_SHUTDOWN
+#define THERMAL_EVENT_SHUTDOWN 0
+#endif
+#ifndef THERMAL_EVENT_UNSPECIFIED
+#define THERMAL_EVENT_UNSPECIFIED 0xffffffff
+#endif

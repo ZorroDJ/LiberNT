@@ -342,7 +342,7 @@ extern KAFFINITY KiHeteroPerformanceSet[KE_MAXIMUM_GROUPS];
 #define KI_MAX_USER_CALLBACK_NESTING 31
 
 #ifndef KiPrcbTimerTableLockQueue
-#define KiPrcbTimerTableLockQueue(Prcb, Index) (&(Prcb)->LockQueue[LockQueueTimerTableLock + (Index)])
+#define KiPrcbTimerTableLockQueue(Prcb, Index) (&(Prcb)->TimerTableLockQueue[(Index)])
 #endif
 
 #ifdef CONFIG_SMP
@@ -1107,7 +1107,7 @@ PVOID
 NTAPI
 KiPcToFileHeader(
     _In_ PVOID Pc,
-    _Out_ PLDR_DATA_TABLE_ENTRY *LdrEntry,
+    _Out_ PKLDR_DATA_TABLE_ENTRY *LdrEntry,
     _In_ BOOLEAN DriversOnly,
     _Out_ PBOOLEAN InKernel);
 

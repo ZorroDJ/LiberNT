@@ -7,7 +7,7 @@
  */
 
 #include "uxthemep.h"
-#include <reactos/dwmframe.h>
+#include <libernt/dwmframe.h>
 #include <math.h>
 
 
