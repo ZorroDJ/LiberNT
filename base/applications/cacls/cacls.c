@@ -377,6 +377,8 @@ GetPathOfFile(LPTSTR FilePath, LPCTSTR pszFiles)
     if (pch != NULL)
     {
         *pch = 0;
+        if (FilePath[0] == 0 || FilePath[_tcslen(FilePath) - 1] == _T(':'))
+            _tcscat(FilePath, _T("\\"));
         if (!GetFullPathName(FilePath, MAX_PATH, FullPath, NULL))
         {
             PrintError(GetLastError());

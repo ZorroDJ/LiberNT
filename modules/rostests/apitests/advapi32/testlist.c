@@ -2,10 +2,12 @@
 #define STANDALONE
 #include <apitest.h>
 
+extern void func_TraceCallback(void);
 extern void func_BcdStoreAccess(void);
 extern void func_AddMandatoryAce(void);
 extern void func_ControlServiceEx(void);
 extern void func_CopySid(void);
+extern void func_FileSecurityOwner(void);
 extern void func_RedistributableFileOwner(void);
 extern void func_CreateProcessWithToken(void);
 extern void func_CreateProcessWithTokenChild(void);
@@ -22,6 +24,7 @@ extern void func_ImpersonateRestricted(void);
 extern void func_IntegrityLabels(void);
 extern void func_LogonSession(void);
 extern void func_LogonSessionEnd(void);
+extern void func_LogonUserExEx(void);
 extern void func_LogonUserNetwork(void);
 extern void func_IsTextUnicode(void);
 extern void func_LocalSystemPrivileges(void);
@@ -75,10 +78,12 @@ extern void func_UserHiveAccess(void);
 
 const struct test winetest_testlist[] =
 {
+    { "TraceCallback", func_TraceCallback },
     { "BcdStoreAccess", func_BcdStoreAccess },
     { "AddMandatoryAce", func_AddMandatoryAce },
     { "ControlServiceEx", func_ControlServiceEx },
     { "CopySid", func_CopySid },
+    { "FileSecurityOwner", func_FileSecurityOwner },
     { "RedistributableFileOwner", func_RedistributableFileOwner },
     { "CreateProcessWithToken", func_CreateProcessWithToken },
     { "CreateProcessWithTokenChild", func_CreateProcessWithTokenChild },
@@ -95,6 +100,7 @@ const struct test winetest_testlist[] =
     { "IntegrityLabels", func_IntegrityLabels },
     { "LogonSession", func_LogonSession },
     { "LogonSessionEnd", func_LogonSessionEnd },
+    { "LogonUserExEx", func_LogonUserExEx },
     { "LogonUserNetwork", func_LogonUserNetwork },
     { "IsTextUnicode" , func_IsTextUnicode },
     { "TokenDefaultDacl", func_TokenDefaultDacl },

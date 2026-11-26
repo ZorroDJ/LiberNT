@@ -3,6 +3,7 @@
 #include <apitest.h>
 
 extern void func_ApiSetHosts(void);
+extern void func_GlobalMemoryStatusVirtual(void);
 extern void func_ActCtxWithXmlNamespaces(void);
 extern void func_ActCtxDependencyVersions(void);
 extern void func_AlternateComputerNames(void);
@@ -144,6 +145,7 @@ extern void func_MuiResources(void);
 extern void func_MultiByteToWideChar(void);
 extern void func_NamedPipeClientComputerName(void);
 extern void func_NlsStringApis(void);
+extern void func_NulDevice(void);
 extern void func_NumaApis(void);
 extern void func_PerfConsumer(void);
 extern void func_PerfProvider(void);
@@ -175,6 +177,7 @@ extern void func_SetCurrentDirectory(void);
 extern void func_SetFileAllocationInfo(void);
 extern void func_SetStdHandleEx(void);
 extern void func_SecureMemoryCache(void);
+extern void func_SetThreadIdealProcessor(void);
 extern void func_SetThreadStackGuarantee(void);
 extern void func_SetUnhandledExceptionFilter(void);
 extern void func_SetWaitableTimerEx(void);
@@ -238,6 +241,7 @@ extern void func_FileSecurityCache(void);
 
 const struct test winetest_testlist[] =
 {
+    { "GlobalMemoryStatusVirtual", func_GlobalMemoryStatusVirtual },
     { "ApiSetHosts", func_ApiSetHosts },
     { "FileSecurityCache",                  func_FileSecurityCache },
     { "SetFileAllocationInfo", func_SetFileAllocationInfo },
@@ -384,6 +388,7 @@ const struct test winetest_testlist[] =
     { "MultiByteToWideChar",         func_MultiByteToWideChar },
     { "NamedPipeClientComputerName", func_NamedPipeClientComputerName },
     { "NlsStringApis",               func_NlsStringApis },
+    { "NulDevice",                   func_NulDevice },
     { "NumaApis",                    func_NumaApis },
     { "PerfConsumer",              func_PerfConsumer },
     { "PerfProvider",              func_PerfProvider },
@@ -412,6 +417,7 @@ const struct test winetest_testlist[] =
     { "SetComputerNameExW",          func_SetComputerNameExW },
     { "SetConsoleWindowInfo",        func_SetConsoleWindowInfo },
     { "SetCurrentDirectory",         func_SetCurrentDirectory },
+    { "SetThreadIdealProcessor",     func_SetThreadIdealProcessor },
     { "SetThreadStackGuarantee",     func_SetThreadStackGuarantee },
     { "SetUnhandledExceptionFilter", func_SetUnhandledExceptionFilter },
     { "SetWaitableTimerEx",          func_SetWaitableTimerEx },

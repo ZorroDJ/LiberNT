@@ -134,14 +134,6 @@ C_ASSERT(FIELD_OFFSET(RXGK_RESOLVESHAREDRESOURCENTHANDLE_PACKET, GlobalShareHand
         return DxgAdapterCallbacks.CallbackField(HandleArgument);         \
     } while (0)
 
-#define D3DKMT_REQUIRE_HANDLE(Handle)                                    \
-    do                                                                   \
-    {                                                                    \
-        NTSTATUS Status = D3dkmtValidateHandle(Handle);                  \
-        if (!NT_SUCCESS(Status))                                         \
-            return Status;                                               \
-    } while (0)
-
 #define D3DKMT_PRESENT_MAX_SUBRECTS 64U
 #define TAG_D3DKMT_PRESENT_SUBRECTS 'rPmD'
 #define TAG_D3DKMT_CAPTURE 'aCmD'
@@ -479,6 +471,7 @@ D3dkmtCallCaptured(
 {
     UCHAR StackBuffer[2 * 512];
     PUCHAR Captured = StackBuffer;
+    WDDM_BRIDGE_TRUSTED_BUFFER Trusted;
     NTSTATUS Status;
 
     if (ExGetPreviousMode() == KernelMode)
@@ -492,11 +485,22 @@ D3dkmtCallCaptured(
     if (Argument == NULL || !NT_SUCCESS(D3dkmtCaptureUserStructure(Argument, Size, Captured)))
     {
         RtlZeroMemory(Captured, Size);
-        Status = ZeroOnBadArgument ? Callback(Captured) : STATUS_INVALID_PARAMETER;
+        if (ZeroOnBadArgument)
+        {
+            WddmBridgeTrustKernelBuffer(&Trusted, Captured, Size);
+            Status = Callback(Captured);
+            WddmBridgeDistrustKernelBuffer(&Trusted);
+        }
+        else
+        {
+            Status = STATUS_INVALID_PARAMETER;
+        }
         goto Done;
     }
     RtlCopyMemory(Captured + Size, Captured, Size);
+    WddmBridgeTrustKernelBuffer(&Trusted, Captured, Size);
     Status = Callback(Captured);
+    WddmBridgeDistrustKernelBuffer(&Trusted);
     if (RtlCompareMemory(Captured, Captured + Size, Size) != Size)
     {
         _SEH2_TRY
@@ -524,13 +528,6 @@ D3dkmtValidateWddmHandleThunk(
         return STATUS_INVALID_PARAMETER;
 
     return WddmBridgeRequireReady();
-}
-
-static NTSTATUS
-D3dkmtValidateHandle(
-    _In_ D3DKMT_HANDLE Handle)
-{
-    return (Handle != 0) ? STATUS_SUCCESS : STATUS_INVALID_HANDLE;
 }
 
 static NTSTATUS
@@ -688,94 +685,16 @@ NtGdiDdDDISharedPrimaryUnLockNotification(_In_ const D3DKMT_SHAREDPRIMARYUNLOCKN
     Process = PsGetCurrentProcessWin32Process();
     if (Process != NULL && D3dkmtFindSharedPrimaryLock(Process, Captured.AdapterLuid, Captured.VidPnSourceId, FALSE))
         return STATUS_SUCCESS;
-    return D3DKMTSharedPrimaryUnLockNotification(unnamedParam1);
-}
+    if (WddmHandOverIsActive())
+    {
+        BOOLEAN IsSource;
 
-NTSTATUS
-APIENTRY
-NtGdiDdDDIOpenAdapterFromGdiDisplayName(_Inout_ D3DKMT_OPENADAPTERFROMGDIDISPLAYNAME* unnamedParam1)
-{
-    D3DKMT_OPENADAPTERFROMGDIDISPLAYNAME Captured;
-    WCHAR NtDeviceName[CCHDEVICENAME / 2];
-    UNICODE_STRING DisplayName;
-    PPDEVOBJ Pdev;
-    ULONG Index;
-    NTSTATUS Status;
-
-    if (unnamedParam1 == NULL)
-        return STATUS_UNSUCCESSFUL;
-    Status = D3dkmtValidateWddmThunk(unnamedParam1);
-
-    if (!NT_SUCCESS(Status))
-        return Status;
-    _SEH2_TRY
-    {
-        if (ExGetPreviousMode() != KernelMode)
-            ProbeForRead(unnamedParam1, sizeof(Captured), 1);
-        Captured = *unnamedParam1;
-    }
-    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
-    {
-        _SEH2_YIELD(return _SEH2_GetExceptionCode());
-    }
-    _SEH2_END;
-    for (Index = 0; Index < RTL_NUMBER_OF(Captured.DeviceName) && Captured.DeviceName[Index] != L'\0'; ++Index)
-        NOTHING;
-    if (Index == 0)
-        return STATUS_UNSUCCESSFUL;
-    if (Index == RTL_NUMBER_OF(Captured.DeviceName))
-        return STATUS_INVALID_PARAMETER;
-    RtlInitUnicodeString(&DisplayName, Captured.DeviceName);
-    Pdev = EngpGetPDEV(&DisplayName);
-    if (Pdev == NULL)
-    {
-        /*
-         * The name is well formed; there is simply no such display.  That is a
-         * lookup that found nothing, not a malformed argument, and the two are
-         * worth telling apart: a caller enumerating displays walks names until
-         * one fails, and INVALID_PARAMETER reads as "you asked wrongly" while
-         * UNSUCCESSFUL reads as "you have run off the end".  Measured on Win11:
-         * STATUS_UNSUCCESSFUL.
-         */
-        return STATUS_UNSUCCESSFUL;
-    }
-    if (Pdev->pGraphicsDevice == NULL || Pdev->pGraphicsDevice->szNtDeviceName[0] == L'\0')
-        Status = STATUS_UNSUCCESSFUL;
-    else
-    {
-        RtlCopyMemory(NtDeviceName, Pdev->pGraphicsDevice->szNtDeviceName, sizeof(NtDeviceName));
-        NtDeviceName[RTL_NUMBER_OF(NtDeviceName) - 1] = L'\0';
-    }
-    PDEVOBJ_vRelease(Pdev);
-    if (!NT_SUCCESS(Status))
-        return Status;
-    Status = D3dkmtOpenAdapterByDisplayDevice(NtDeviceName, &Captured.hAdapter, &Captured.AdapterLuid,
-                                              &Captured.VidPnSourceId);
-    if (!NT_SUCCESS(Status))
-    {
-        /* A display device that is not a video present source of an adapter scans out the adapter's first source */
-        Status = D3dkmtOpenAdapterByCapturedNtDeviceName(
-                     NtDeviceName,
-                     &Captured.hAdapter,
-                     &Captured.AdapterLuid);
+        Status = WddmHandOverIsPresentSource(Captured.AdapterLuid, Captured.VidPnSourceId, &IsSource);
         if (!NT_SUCCESS(Status))
             return Status;
-        Captured.VidPnSourceId = 0;
+        return IsSource ? STATUS_INVALID_PARAMETER : STATUS_SUCCESS;
     }
-    _SEH2_TRY
-    {
-        if (ExGetPreviousMode() != KernelMode)
-            ProbeForWrite(unnamedParam1, sizeof(Captured), 1);
-        *unnamedParam1 = Captured;
-    }
-    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
-    {
-        Status = _SEH2_GetExceptionCode();
-    }
-    _SEH2_END;
-    if (!NT_SUCCESS(Status))
-        D3dkmtCloseCapturedAdapter(Captured.hAdapter);
-    return Status;
+    return D3DKMTSharedPrimaryUnLockNotification(unnamedParam1);
 }
 
 NTSTATUS
@@ -855,6 +774,76 @@ NtGdiDdDDIOpenAdapterFromHdc(_Inout_ D3DKMT_OPENADAPTERFROMHDC* unnamedParam1)
 }
 
 
+/* A graphics kernel without the bridge asks win32k to open the adapter of a DC's display */
+LONG
+__cdecl
+D3dkmtHandOverOpenAdapterFromHdc(
+    _Inout_ D3DKMT_OPENADAPTERFROMHDC *Open)
+{
+    D3DKMT_OPENADAPTERFROMHDC Captured;
+    PDEVICE_OBJECT DisplayDevice = NULL;
+    NTSTATUS CloseStatus;
+    NTSTATUS Status;
+    PDC Dc;
+
+    PAGED_CODE();
+    ASSERT(KeGetCurrentIrql() == PASSIVE_LEVEL);
+
+    if (Open == NULL)
+        return STATUS_INVALID_PARAMETER;
+    _SEH2_TRY
+    {
+        if (ExGetPreviousMode() != KernelMode)
+            ProbeForRead(Open, sizeof(*Open), 1);
+        Captured = *Open;
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        _SEH2_YIELD(return STATUS_INVALID_PARAMETER);
+    }
+    _SEH2_END;
+    if (Captured.hDc == NULL)
+        return STATUS_INVALID_PARAMETER;
+
+    Dc = DC_LockDc(Captured.hDc);
+    if (Dc == NULL)
+        return STATUS_INVALID_PARAMETER;
+    if (Dc->ppdev != NULL && Dc->ppdev->pGraphicsDevice != NULL)
+        DisplayDevice = Dc->ppdev->pGraphicsDevice->DeviceObject;
+    if (DisplayDevice != NULL)
+        ObReferenceObject(DisplayDevice);
+    DC_UnlockDc(Dc);
+    if (DisplayDevice == NULL)
+        return STATUS_INVALID_PARAMETER;
+
+    Status = WddmHandOverOpenAdapter(DisplayDevice, &Captured.hAdapter, &Captured.AdapterLuid, &Captured.VidPnSourceId);
+    ObDereferenceObject(DisplayDevice);
+    if (!NT_SUCCESS(Status))
+        return Status;
+    ASSERT(Captured.hAdapter != 0);
+
+    _SEH2_TRY
+    {
+        if (ExGetPreviousMode() != KernelMode)
+            ProbeForWrite(Open, sizeof(*Open), 1);
+        Open->hAdapter = Captured.hAdapter;
+        Open->AdapterLuid = Captured.AdapterLuid;
+        Open->VidPnSourceId = Captured.VidPnSourceId;
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        Status = STATUS_INVALID_PARAMETER;
+    }
+    _SEH2_END;
+    if (!NT_SUCCESS(Status))
+    {
+        CloseStatus = WddmHandOverCloseAdapter(Captured.hAdapter);
+        if (!NT_SUCCESS(CloseStatus))
+            DPRINT1("D3DKMT: closing adapter 0x%x failed: 0x%08lx\n", Captured.hAdapter, CloseStatus);
+    }
+    return Status;
+}
+
 NTSTATUS
 APIENTRY
 NtGdiDdDDIOpenAdapterFromDeviceName(_Inout_ D3DKMT_OPENADAPTERFROMDEVICENAME* unnamedParam1)
@@ -883,7 +872,7 @@ APIENTRY
 NtGdiDdDDICreateAllocation(_Inout_ D3DKMT_CREATEALLOCATION* unnamedParam1)
 {
     RETURN_STATUS_IF_NULL(unnamedParam1);
-    D3DKMT_CALL_CALLBACK(RxgkIntPfnCreateAllocation, unnamedParam1);
+    D3DKMT_CALL_CALLBACK(RxgkIntPfnCreateAllocation2, unnamedParam1);
 }
 
 NTSTATUS
@@ -1112,12 +1101,26 @@ NtGdiDdDDILock(_Inout_ D3DKMT_LOCK* unnamedParam1)
     D3DKMT_CALL_CALLBACK(RxgkIntPfnLock, unnamedParam1);
 }
 
+static NTSTATUS
+APIENTRY
+D3dkmtOpenResourceEntries2(
+    _Inout_ PVOID Argument)
+{
+    return D3dkmtBridgeOpenResourceEntries2((D3DKMT_OPENRESOURCE *)Argument);
+}
+
 NTSTATUS
 APIENTRY
 NtGdiDdDDIOpenResource(_Inout_ D3DKMT_OPENRESOURCE* unnamedParam1)
 {
-    RETURN_STATUS_IF_NULL(unnamedParam1);
-    D3DKMT_CALL_CALLBACK(RxgkIntPfnOpenResource, unnamedParam1);
+    NTSTATUS Status;
+
+    Status = D3dkmtValidateWddmThunk(unnamedParam1);
+    if (!NT_SUCCESS(Status))
+        return Status;
+    if (DxgAdapterCallbacks.RxgkIntPfnOpenResource == NULL)
+        return STATUS_PROCEDURE_NOT_FOUND;
+    return D3dkmtCallCaptured(unnamedParam1, sizeof(*unnamedParam1), D3dkmtOpenResourceEntries2, FALSE);
 }
 
 NTSTATUS
@@ -1136,7 +1139,9 @@ NtGdiDdDDIPresent(_In_ D3DKMT_PRESENT* unnamedParam1)
     const SIZE_T PresentSize = RXGK_D3DKMT_PRESENT_WIRE_SIZE;
     CONST RECT *UserSubRects;
     RECT *CapturedSubRects = NULL;
-    SIZE_T SubRectBytes;
+    SIZE_T SubRectBytes = 0;
+    WDDM_BRIDGE_TRUSTED_BUFFER TrustedPresent;
+    WDDM_BRIDGE_TRUSTED_BUFFER TrustedSubRects;
     NTSTATUS Status;
 
     RtlZeroMemory(&Captured, sizeof(Captured));
@@ -1223,7 +1228,13 @@ NtGdiDdDDIPresent(_In_ D3DKMT_PRESENT* unnamedParam1)
         }
     }
 
+    WddmBridgeTrustKernelBuffer(&TrustedPresent, &Captured, sizeof(Captured));
+    if (CapturedSubRects != NULL)
+        WddmBridgeTrustKernelBuffer(&TrustedSubRects, CapturedSubRects, SubRectBytes);
     Status = DxgAdapterCallbacks.RxgkIntPfnPresent(&Captured);
+    if (CapturedSubRects != NULL)
+        WddmBridgeDistrustKernelBuffer(&TrustedSubRects);
+    WddmBridgeDistrustKernelBuffer(&TrustedPresent);
     if (NT_SUCCESS(Status))
     {
         Captured.pSrcSubRects = UserSubRects;
@@ -1377,24 +1388,6 @@ NtGdiDdDDICheckVidPnExclusiveOwnership(_In_ const D3DKMT_CHECKVIDPNEXCLUSIVEOWNE
 
 NTSTATUS
 APIENTRY
-NtGdiDdDDICreateAllocation2(_Inout_ D3DKMT_CREATEALLOCATION* unnamedParam1)
-{
-    RETURN_STATUS_IF_NULL(unnamedParam1);
-    /* The bridge captures the complete top-level structure before validating
-     * any field and preserves INFO2 identity before accessing the array. */
-    D3DKMT_CALL_CALLBACK(RxgkIntPfnCreateAllocation2, unnamedParam1);
-}
-
-NTSTATUS
-APIENTRY
-NtGdiDdDDIOpenResource2(_Inout_ D3DKMT_OPENRESOURCE* unnamedParam1)
-{
-    RETURN_STATUS_IF_NULL(unnamedParam1);
-    D3DKMT_CALL_CALLBACK(RxgkIntPfnOpenResource, unnamedParam1);
-}
-
-NTSTATUS
-APIENTRY
 NtGdiDdDDIOpenSynchronizationObject(_Inout_ D3DKMT_OPENSYNCHRONIZATIONOBJECT* unnamedParam1)
 {
     RETURN_STATUS_IF_NULL(unnamedParam1);
@@ -1484,11 +1477,9 @@ APIENTRY
 NtGdiDdDDIGetPresentQueueEvent(_In_ D3DKMT_HANDLE hAdapter,
                                _Inout_ HANDLE* unnamedParam2)
 {
-    if (!unnamedParam2)
-        return STATUS_INVALID_PARAMETER;
-    D3DKMT_REQUIRE_HANDLE(hAdapter);
-    /* Win11 refuses this to callers that do not own the present queue; not
-     * implementing it is honest, answering NOT_IMPLEMENTED is not. */
+    UNREFERENCED_PARAMETER(hAdapter);
+    UNREFERENCED_PARAMETER(unnamedParam2);
+    /* TODO: hand the present queue event to the process that owns the present queue */
     return STATUS_ACCESS_DENIED;
 }
 
@@ -2019,6 +2010,7 @@ NtGdiDdDDIOpenResourceFromNtHandle(_Inout_ struct _D3DKMT_OPENRESOURCEFROMNTHAND
     D3DKMT_OPENRESOURCEFROMNTHANDLE Captured;
     D3DKMT_OPENRESOURCE OpenResource;
     D3DKMT_HANDLE GlobalShareHandle;
+    WDDM_BRIDGE_TRUSTED_BUFFER Trusted;
     NTSTATUS Status;
 
     Status = D3dkmtValidateWddmThunk(unnamedParam1);
@@ -2069,7 +2061,9 @@ NtGdiDdDDIOpenResourceFromNtHandle(_Inout_ struct _D3DKMT_OPENRESOURCEFROMNTHAND
     OpenResource.TotalPrivateDriverDataBufferSize =
         Captured.TotalPrivateDriverDataBufferSize;
 
+    WddmBridgeTrustKernelBuffer(&Trusted, &OpenResource, sizeof(OpenResource));
     Status = D3dkmtBridgeOpenResourceEntries2(&OpenResource);
+    WddmBridgeDistrustKernelBuffer(&Trusted);
     if (!NT_SUCCESS(Status))
         return Status;
 
@@ -2103,6 +2097,7 @@ NtGdiDdDDIQueryResourceInfoFromNtHandle(_Inout_ struct _D3DKMT_QUERYRESOURCEINFO
     D3DKMT_QUERYRESOURCEINFOFROMNTHANDLE Captured;
     D3DKMT_QUERYRESOURCEINFO QueryResourceInfo;
     D3DKMT_HANDLE GlobalShareHandle;
+    WDDM_BRIDGE_TRUSTED_BUFFER Trusted;
     NTSTATUS Status;
 
     Status = D3dkmtValidateWddmThunk(unnamedParam1);
@@ -2127,7 +2122,9 @@ NtGdiDdDDIQueryResourceInfoFromNtHandle(_Inout_ struct _D3DKMT_QUERYRESOURCEINFO
     QueryResourceInfo.PrivateRuntimeDataSize =
         Captured.PrivateRuntimeDataSize;
 
+    WddmBridgeTrustKernelBuffer(&Trusted, &QueryResourceInfo, sizeof(QueryResourceInfo));
     Status = D3DKMTQueryResourceInfo(&QueryResourceInfo);
+    WddmBridgeDistrustKernelBuffer(&Trusted);
     if (!NT_SUCCESS(Status))
         return Status;
 

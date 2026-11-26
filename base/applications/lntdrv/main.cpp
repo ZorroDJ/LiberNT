@@ -2101,35 +2101,6 @@ public:
     }
 };
 
-std::wstring GroupKey(const DeviceInfo &device)
-{
-    return device.HardwareIds.empty() ? device.InstanceId : device.HardwareIds.front();
-}
-
-std::vector<std::vector<DeviceInfo>> MissingGroups(const std::vector<DeviceInfo> &devices, bool searchable, bool generic)
-{
-    std::vector<std::vector<DeviceInfo>> groups;
-
-    for (const DeviceInfo &device : devices)
-    {
-        std::wstring key = GroupKey(device);
-        auto group = std::find_if(groups.begin(), groups.end(), [&key](const std::vector<DeviceInfo> &other) {
-            return _wcsicmp(GroupKey(other.front()).c_str(), key.c_str()) == 0;
-        });
-
-        if (!(generic ? WantsCatalogDriver(device) : NeedsDriver(device)) ||
-            (searchable && CatalogQueries(device).empty()))
-        {
-            continue;
-        }
-        if (group == groups.end())
-            groups.push_back(std::vector<DeviceInfo>(1, device));
-        else
-            group->push_back(device);
-    }
-    return groups;
-}
-
 std::wstring GroupName(const std::vector<DeviceInfo> &group)
 {
     const DeviceInfo &first = group.front();
@@ -2278,7 +2249,7 @@ int RunCommand(int argc, LPWSTR *argv)
                 BOOL reboot = FALSE;
                 DWORD error = plan.Error;
 
-                if (!FindDevice(group.front().InstanceId, target) || !WantsCatalogDriver(target))
+                if (!FindDevice(group.front().InstanceId, target) || !NeedsDriver(target))
                 {
                     Print(FormatText(IDS_CLI_ALREADY, GroupName(group)));
                     return true;
@@ -2334,7 +2305,7 @@ int RunCommand(int argc, LPWSTR *argv)
         };
         Catalog catalog;
         PrintThrottle throttle;
-        std::vector<std::vector<DeviceInfo>> groups = MissingGroups(devices, true, true);
+        std::vector<std::vector<DeviceInfo>> groups = MissingInstallAllGroups(devices);
         std::vector<SearchPlan> plans;
         InstallSink sink(groups);
         size_t missing = 0;

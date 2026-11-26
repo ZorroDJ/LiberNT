@@ -3,6 +3,7 @@
 #include <apitest.h>
 
 extern void func_AcpiDeviceCapabilities(void);
+extern void func_CfgMgr32EnumSubkeys(void);
 extern void func_ClassInstallParams(void);
 extern void func_devclass(void);
 extern void func_DeviceClassName(void);
@@ -18,6 +19,7 @@ extern void func_DevicePdoName(void);
 extern void func_DeviceDisablePersist(void);
 extern void func_DevicePowerOnDisable(void);
 extern void func_DeviceRemoveVeto(void);
+extern void func_GenericButtonStart(void);
 extern void func_HostBridgeStart(void);
 extern void func_InboxClasses(void);
 extern void func_InterruptAffinityPolicy(void);
@@ -40,6 +42,7 @@ extern void func_ServiceFilterNoLegacyNode(void);
 extern void func_SoftwareComponent(void);
 extern void func_SetupCommitFileQueue(void);
 extern void func_SetupDiInstallClassExA(void);
+extern void func_SetupDiInterfaceSubkeys(void);
 extern void func_SetupDiOpenDeviceInterface(void);
 extern void func_SetupInstallFile(void);
 extern void func_SetupInstallRegisterDlls(void);
@@ -51,6 +54,7 @@ extern void func_UsbInterfaceIds(void);
 const struct test winetest_testlist[] =
 {
     { "AcpiDeviceCapabilities", func_AcpiDeviceCapabilities },
+    { "CfgMgr32EnumSubkeys", func_CfgMgr32EnumSubkeys },
     { "ClassInstallParams", func_ClassInstallParams },
     { "devclass", func_devclass },
     { "DeviceClassName", func_DeviceClassName },
@@ -66,6 +70,7 @@ const struct test winetest_testlist[] =
     { "DeviceDisablePersist", func_DeviceDisablePersist },
     { "DevicePowerOnDisable", func_DevicePowerOnDisable },
     { "DeviceRemoveVeto", func_DeviceRemoveVeto },
+    { "GenericButtonStart", func_GenericButtonStart },
     { "HostBridgeStart", func_HostBridgeStart },
     { "InboxClasses", func_InboxClasses },
     { "InterruptAffinityPolicy", func_InterruptAffinityPolicy },
@@ -88,6 +93,7 @@ const struct test winetest_testlist[] =
     { "SoftwareComponent", func_SoftwareComponent },
     { "SetupCommitFileQueue", func_SetupCommitFileQueue },
     { "SetupDiInstallClassExA", func_SetupDiInstallClassExA},
+    { "SetupDiInterfaceSubkeys", func_SetupDiInterfaceSubkeys },
     { "SetupDiOpenDeviceInterface", func_SetupDiOpenDeviceInterface },
     { "SetupInstallFile", func_SetupInstallFile },
     { "SetupInstallRegisterDlls", func_SetupInstallRegisterDlls },

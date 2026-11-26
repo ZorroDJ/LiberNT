@@ -675,6 +675,11 @@ done:
 
 /* PUBLIC FUNCTIONS ********************************************************/
 
+static
+VOID
+CreateLocalLowDirectory(
+    _In_ LPCWSTR lpProfileDir);
+
 BOOL
 WINAPI
 CopySystemProfile(
@@ -810,6 +815,8 @@ CopySystemProfile(
         DPRINT1("Failed to copy the default profile directory (Error %lu)\n", GetLastError());
         goto done;
     }
+
+    CreateLocalLowDirectory(szProfilePath);
 
     cchSize = ExpandEnvironmentStringsW(L"%SystemRoot%\\SysWOW64", szProfilePath, ARRAYSIZE(szProfilePath));
     if (cchSize != 0 && cchSize <= ARRAYSIZE(szProfilePath) &&

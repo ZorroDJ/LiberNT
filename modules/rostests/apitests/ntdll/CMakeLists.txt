@@ -67,6 +67,7 @@ list(APPEND SOURCE
     wow64_startup.c
     wow64_native_process.c
     KnownDlls.c
+    LdrBaseAddressIndex.c
     LdrEnumResources.c
     LdrFindResource_U.c
     LdrForwarderPath.c
@@ -142,6 +143,7 @@ list(APPEND SOURCE
     NtQueryObjectName.c
     NtQueryOpenSubKeys.c
     NtQuerySection.c
+    NtQuerySectionImageNoExecute.c
     NtQuerySecurityObject.c
     NtSetSecurityObjectStatus.c
     NtQuerySystemEnvironmentValue.c
@@ -187,6 +189,7 @@ list(APPEND SOURCE
     ProcessPoolQuota.c
     ProcessUserModeIopl.c
     MemoryImageInformation.c
+    PartialImageMap.c
     ObjectQuotaLimit.c
     ObjectTypeIndex.c
     ObHandleRace.c

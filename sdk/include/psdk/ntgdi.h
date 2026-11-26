@@ -4153,13 +4153,6 @@ __kernel_entry
 W32KAPI
 NTSTATUS
 APIENTRY
-NtGdiDdDDIOpenAdapterFromGdiDisplayName(
-    _Inout_ D3DKMT_OPENADAPTERFROMGDIDISPLAYNAME* unnamedParam1);
-
-__kernel_entry
-W32KAPI
-NTSTATUS
-APIENTRY
 NtGdiDdDDIOpenAdapterFromHdc(
     _Inout_ D3DKMT_OPENADAPTERFROMHDC* unnamedParam1);
 
@@ -4543,20 +4536,6 @@ NTSTATUS
 APIENTRY
 NtGdiDdDDIOpenAdapterFromLuid(
     _Inout_ struct _D3DKMT_OPENADAPTERFROMLUID* unnamedParam1);
-
-__kernel_entry
-W32KAPI
-NTSTATUS
-APIENTRY
-NtGdiDdDDICreateAllocation2(
-    _Inout_ struct _D3DKMT_CREATEALLOCATION* unnamedParam1);
-
-__kernel_entry
-W32KAPI
-NTSTATUS
-APIENTRY
-NtGdiDdDDIOpenResource2(
-    _Inout_ struct _D3DKMT_OPENRESOURCE* unnamedParam1);
 
 __kernel_entry
 W32KAPI

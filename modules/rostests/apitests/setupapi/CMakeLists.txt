@@ -1,6 +1,7 @@
 
 list(APPEND SOURCE
     AcpiDeviceCapabilities.c
+    CfgMgr32EnumSubkeys.c
     ClassInstallParams.c
     devclass.c
     DeviceClassName.c
@@ -18,6 +19,7 @@ list(APPEND SOURCE
     DeviceDisablePersist.c
     DevicePowerOnDisable.c
     DeviceRemoveVeto.c
+    GenericButtonStart.c
     HostBridgeStart.c
     InboxClasses.c
     InterruptAffinityPolicy.c
@@ -33,6 +35,7 @@ list(APPEND SOURCE
     SoftwareBusRestart.c
     SetupCommitFileQueue.c
     SetupDiInstallClassExA.c
+    SetupDiInterfaceSubkeys.c
     SetupDiOpenDeviceInterface.c
     SetupDiGetActualModelsSection.c
     SetupInstallFile.c

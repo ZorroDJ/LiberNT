@@ -83,6 +83,7 @@ list(APPEND KMTEST_DRV_SOURCE
     directx/DxgkChildDescriptor.c
     directx/DxgkPostDisplayHandoff.c
     directx/DxgkStopScreen.c
+    directx/WdSessionManager.c
     directx/DxgkPresentUserSource.c
     directx/MonitorBrightnessKey.c
     directx/DxgkGpuVaAddress.c
@@ -679,6 +680,7 @@ list(APPEND KMTEST_SOURCE
     ntos_cc/CcMapData_user.c
     ntos_cc/CcPinMappedData_user.c
     ntos_cc/CcPinRead_user.c
+    ntos_ps/PsTerminateWait_user.c
     ntos_cc/CcSetFileSizes_user.c
     ntos_io/IoAddDeviceUnload_user.c
     ntos_io/IoFilterRequirements_user.c

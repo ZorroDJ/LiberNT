@@ -4679,6 +4679,13 @@ IntCompositionDwmDxSurface(_In_ PVOID pUser)
                 ULONG Index;
 #if defined(REACTOS_GRAPHICS_DRIVER_MODEL_WDDM)
                 Status = WddmBridgeValidateSharedResourceOwner(&Request.AdapterLuid, Request.GlobalShare);
+                /* Without the bridge a global share handle exists only for legacy sharing, which any process may open */
+                /* TODO: validate the share owner through a graphics kernel that has no bridge */
+                if (Status == STATUS_INVALID_DEVICE_REQUEST &&
+                    WddmBridgeRequireReady() == STATUS_INVALID_DEVICE_REQUEST)
+                {
+                    Status = STATUS_SUCCESS;
+                }
 #else
                 Status = STATUS_NOT_SUPPORTED;
 #endif
@@ -5271,6 +5278,21 @@ IntCompositionVisRgnBounded(
     }
 
     return VisRgn;
+}
+
+PREGION
+IntCompositionComputeVisibleRegion(
+    _In_ PWND Wnd,
+    _In_ BOOLEAN ClientArea,
+    _In_ BOOLEAN ClipChildren,
+    _In_ BOOLEAN ClipSiblings)
+{
+    PWND Ancestor = gbCompositionEnabled ? IntCompositionTopLevel(Wnd) : NULL;
+
+    if (Ancestor != NULL && Ancestor != Wnd && IntCompositionGetRedirectSurface(Ancestor) != NULL)
+        return IntCompositionVisRgnBounded(Wnd, Ancestor, ClientArea, ClipChildren, ClipSiblings);
+
+    return VIS_ComputeVisibleRegion(Wnd, ClientArea, ClipChildren, ClipSiblings);
 }
 
 /* Restore a locked, redirected DC to the PDEV primary (mirrors DC_vUpdateDC). */

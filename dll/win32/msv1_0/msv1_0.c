@@ -1535,6 +1535,7 @@ LsaApLogonUserEx2(IN PLSA_CLIENT_REQUEST ClientRequest,
         LogonType == Batch ||
         LogonType == Service ||
         LogonType == Unlock ||
+        LogonType == NetworkCleartext ||
         PlainNetwork)
     {
         PMSV1_0_INTERACTIVE_LOGON LogonInfo;

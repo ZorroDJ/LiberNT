@@ -237,6 +237,8 @@ WlanEnumInterfaces(IN HANDLE hClientHandle,
     if ((pReserved != NULL) || (ppInterfaceList == NULL) || (hClientHandle == NULL))
         return ERROR_INVALID_PARAMETER;
 
+    *ppInterfaceList = NULL;
+
     RpcTryExcept
     {
         dwResult = _RpcEnumInterfaces(hClientHandle, ppInterfaceList);
@@ -366,11 +368,24 @@ WlanGetInterfaceCapability(IN HANDLE hClientHandle,
                            PVOID pReserved,
                            OUT PWLAN_INTERFACE_CAPABILITY *ppCapability)
 {
+    DWORD dwResult;
+
     if ((pReserved != NULL) || (pInterfaceGuid == NULL) || (hClientHandle == NULL) || (ppCapability == NULL))
         return ERROR_INVALID_PARAMETER;
 
-    UNIMPLEMENTED;
-    return ERROR_SUCCESS;
+    *ppCapability = NULL;
+
+    RpcTryExcept
+    {
+        dwResult = _RpcGetInterfaceCapability(hClientHandle, pInterfaceGuid, ppCapability);
+    }
+    RpcExcept(EXCEPTION_EXECUTE_HANDLER)
+    {
+        dwResult = WlanRpcStatusToWinError(RpcExceptionCode());
+    }
+    RpcEndExcept;
+
+    return dwResult;
 }
 
 DWORD WINAPI WlanRegisterNotification(IN HANDLE hClientHandle,

@@ -37,12 +37,21 @@
 #define VWIFI_BEACON_PERIOD         100
 
 /* Maximum number of simulated BSS entries. */
-#define VWIFI_MAX_BSS               3
+#define VWIFI_MAX_BSS               5
 
 #define VWIFI_MAX_JOBS              8
 
 /* Largest beacon-IE blob per BSS (SSID + supported-rates + DS-parameter IEs). */
 #define VWIFI_MAX_BSS_IE            64
+
+#define VWIFI_IE_RSN                48
+#define VWIFI_RSN_IE_BODY_LENGTH    20
+#define VWIFI_PMK_LENGTH            32
+#define VWIFI_NONCE_LENGTH          32
+#define VWIFI_PTK_LENGTH            48
+#define VWIFI_MAX_EAPOL             256
+#define VWIFI_AUTH_RETRY_MS         100
+#define VWIFI_AUTH_M1_ATTEMPTS      3
 
 /* A simulated BSS (access point) the virtual radio "sees" on a scan. */
 typedef struct _VWIFI_FAKE_BSS
@@ -58,7 +67,31 @@ typedef struct _VWIFI_FAKE_BSS
     USHORT CapabilityInformation;  /* 802.11 capability bits                */
     DOT11_AUTH_ALGORITHM AuthAlgorithm; /* what this AP requires            */
     BOOLEAN RoamAfterConnect;
+    BOOLEAN RejoinAfterDisconnect;
+    PCSTR Passphrase;
+    UCHAR Pmk[VWIFI_PMK_LENGTH];
+    BOOLEAN PmkValid;
 } VWIFI_FAKE_BSS, *PVWIFI_FAKE_BSS;
+
+typedef enum _VWIFI_AUTH_STATE
+{
+    VWifiAuthIdle = 0,
+    VWifiAuthWaitM2,
+    VWifiAuthWaitM4,
+    VWifiAuthDone
+} VWIFI_AUTH_STATE;
+
+typedef struct _VWIFI_AUTHENTICATOR
+{
+    VWIFI_AUTH_STATE State;
+    ULONG M1Count;
+    ULONGLONG ReplayCounter;
+    UCHAR ANonce[VWIFI_NONCE_LENGTH];
+    UCHAR Ptk[VWIFI_PTK_LENGTH];
+    ULONG Sequence;
+    ULONG StaEapolLength;
+    UCHAR StaEapol[VWIFI_MAX_EAPOL];
+} VWIFI_AUTHENTICATOR, *PVWIFI_AUTHENTICATOR;
 
 typedef enum _VWIFI_CONN_STATE
 {
@@ -75,7 +108,10 @@ typedef enum _VWIFI_JOB
     VWifiJobScan,           /* finish a scan -> SCAN_CONFIRM                  */
     VWifiJobConnect,        /* assoc-start/assoc-complete/connect-complete   */
     VWifiJobDisconnect,     /* DISASSOCIATION + link down                    */
-    VWifiJobRoam
+    VWifiJobRoam,
+    VWifiJobRejoin,
+    VWifiJobAuthM1,
+    VWifiJobAuthRx
 } VWIFI_JOB;
 
 /* dot11 station configuration accepted/stored from OIDs. */
@@ -119,6 +155,7 @@ typedef struct _VWIFI_ADAPTER
     /* Connection engine. */
     VWIFI_CONN_STATE ConnState;
     ULONG ConnectedBssIndex;        /* index into Bss[] while Connected       */
+    BOOLEAN Rejoined;
     NDIS_SPIN_LOCK Lock;            /* guards ConnState / job queue           */
 
     /* Lifecycle. */
@@ -136,9 +173,14 @@ typedef struct _VWIFI_ADAPTER
     ULONG JobCount;
     ULONGLONG JobDueTime;
 
+    VWIFI_AUTHENTICATOR Auth;
+    NDIS_HANDLE AuthTimer;
+    NDIS_HANDLE RxNblPool;
+
     /* Scan OID pending async completion via NdisMOidRequestComplete.
      * Guarded by Lock; at most one scan outstanding. */
     PNDIS_OID_REQUEST PendingScanOid;
+    PNDIS_OID_REQUEST PendingDisconnectOid;
 
     /* Statistics. */
     ULONG64 TxOkCount;
@@ -168,6 +210,7 @@ NDIS_TIMER_FUNCTION       VWifiEngineTimerDpc;
 NDIS_IO_WORKITEM_FUNCTION VWifiEngineWorker;
 BOOLEAN VWifiScheduleJob(IN PVWIFI_ADAPTER Adapter, IN VWIFI_JOB Job, IN ULONG DelayMs);
 VOID VWifiCompletePendingScan(IN PVWIFI_ADAPTER Adapter, IN NDIS_STATUS Status);
+VOID VWifiCompletePendingDisconnect(IN PVWIFI_ADAPTER Adapter, IN NDIS_STATUS Status);
 LONG VWifiFindDesiredBss(IN PVWIFI_ADAPTER Adapter);
 VOID VWifiInitFakeBssList(IN PVWIFI_ADAPTER Adapter);
 ULONG VWifiBuildBssList(IN PVWIFI_ADAPTER Adapter, OUT PUCHAR Buffer, IN ULONG BufferLength,
@@ -180,6 +223,16 @@ VOID VWifiIndicateAssocComplete(IN PVWIFI_ADAPTER Adapter, IN PVWIFI_FAKE_BSS Bs
 VOID VWifiIndicateConnectComplete(IN PVWIFI_ADAPTER Adapter, IN DOT11_ASSOC_STATUS Status);
 VOID VWifiIndicateDisassociation(IN PVWIFI_ADAPTER Adapter, IN DOT11_ASSOC_STATUS Reason);
 VOID VWifiIndicateLinkState(IN PVWIFI_ADAPTER Adapter, IN BOOLEAN Connected);
+extern const UCHAR VWifiRsnPskCcmp[VWIFI_RSN_IE_BODY_LENGTH];
+
+/* auth.c */
+NDIS_TIMER_FUNCTION VWifiAuthTimerDpc;
+VOID VWifiAuthInitBss(IN OUT PVWIFI_FAKE_BSS Bss);
+VOID VWifiAuthStart(IN PVWIFI_ADAPTER Adapter);
+VOID VWifiAuthStop(IN PVWIFI_ADAPTER Adapter);
+VOID VWifiAuthSendM1(IN PVWIFI_ADAPTER Adapter);
+VOID VWifiAuthProcessEapol(IN PVWIFI_ADAPTER Adapter);
+BOOLEAN VWifiAuthCaptureTx(IN PVWIFI_ADAPTER Adapter, IN PNET_BUFFER NetBuffer);
 
 /* rxtx.c */
 MINIPORT_SEND_NET_BUFFER_LISTS    VWifiMiniportSendNetBufferLists;

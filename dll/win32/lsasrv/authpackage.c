@@ -989,6 +989,7 @@ LsapAddDefaultGroups(
                 break;
 
             case Network:
+            case NetworkCleartext:
                 SrcSid = LsapNetworkSid;
                 break;
 

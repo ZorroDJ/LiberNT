@@ -49,6 +49,7 @@ NDIS_OID VWifiSupportedOids[] =
     OID_DOT11_CURRENT_PACKET_FILTER,
     OID_DOT11_CURRENT_PHY_TYPE,
     OID_DOT11_SUPPORTED_PHY_TYPES,
+    OID_DOT11_EXTSTA_CAPABILITY,
     OID_DOT11_NIC_POWER_STATE,
     OID_DOT11_HARDWARE_PHY_STATE,
     OID_DOT11_MAC_ADDRESS,
@@ -201,17 +202,32 @@ NDIS_STATUS
 VWifiDot11QuerySupportedPhyTypes(
     IN PNDIS_OID_REQUEST Request)
 {
-    DOT11_PHY_TYPE_LIST List;
+    DOT11_SUPPORTED_PHY_TYPES List;
 
     RtlZeroMemory(&List, sizeof(List));
-    List.Header.Type = NDIS_OBJECT_TYPE_DEFAULT;
-    List.Header.Revision = DOT11_PHY_TYPE_LIST_REVISION_1;
-    List.Header.Size = sizeof(DOT11_PHY_TYPE_LIST);
     List.uNumOfEntries = 1;
     List.uTotalNumOfEntries = 1;
-    List.dot11PhyType[0] = dot11_phy_type_erp;   /* 2.4 GHz 802.11g */
+    List.dot11PHYType[0] = dot11_phy_type_erp;   /* 2.4 GHz 802.11g */
 
     return VWifiOidQueryBuffer(Request, &List, sizeof(List));
+}
+
+static
+NDIS_STATUS
+VWifiDot11QueryExtStaCapability(
+    IN PNDIS_OID_REQUEST Request)
+{
+    DOT11_EXTSTA_CAPABILITY Capability;
+
+    RtlZeroMemory(&Capability, sizeof(Capability));
+    Capability.Header.Type = NDIS_OBJECT_TYPE_DEFAULT;
+    Capability.Header.Revision = DOT11_EXTSTA_CAPABILITY_REVISION_1;
+    Capability.Header.Size = sizeof(Capability);
+    Capability.uScanSSIDListSize = 1;
+    Capability.uDesiredBSSIDListSize = 1;
+    Capability.uDesiredSSIDListSize = 1;
+
+    return VWifiOidQueryBuffer(Request, &Capability, sizeof(Capability));
 }
 
 static
@@ -276,6 +292,9 @@ VWifiDot11Query(
 
         case OID_DOT11_SUPPORTED_PHY_TYPES:
             return VWifiDot11QuerySupportedPhyTypes(Request);
+
+        case OID_DOT11_EXTSTA_CAPABILITY:
+            return VWifiDot11QueryExtStaCapability(Request);
 
         case OID_DOT11_CURRENT_PACKET_FILTER:
             return VWifiOidQueryUlong(Request, Adapter->Dot11.PacketFilter);
@@ -585,13 +604,30 @@ VWifiDot11SetDisconnectRequest(
     IN PVWIFI_ADAPTER Adapter,
     IN PNDIS_OID_REQUEST Request)
 {
-    DPRINT1("VWIFI: OID_DOT11_DISCONNECT_REQUEST -> scheduling disassociation\n");
-
-    VWifiScheduleJob(Adapter, VWifiJobDisconnect, 50);
+    NdisAcquireSpinLock(&Adapter->Lock);
+    if (Adapter->ConnState != VWifiConnected || Adapter->PendingDisconnectOid != NULL ||
+        Adapter->MiniportAdapterHandle == NULL)
+    {
+        NdisReleaseSpinLock(&Adapter->Lock);
+        DPRINT1("VWIFI: OID_DOT11_DISCONNECT_REQUEST while not connected\n");
+        return NDIS_STATUS_INVALID_STATE;
+    }
+    Adapter->PendingDisconnectOid = Request;
+    NdisReleaseSpinLock(&Adapter->Lock);
 
     Request->DATA.SET_INFORMATION.BytesRead =
         Request->DATA.SET_INFORMATION.InformationBufferLength;
-    return NDIS_STATUS_SUCCESS;
+    if (VWifiScheduleJob(Adapter, VWifiJobDisconnect, 50))
+    {
+        DPRINT1("VWIFI: OID_DOT11_DISCONNECT_REQUEST -> PENDING, scheduling disassociation\n");
+        return NDIS_STATUS_PENDING;
+    }
+
+    NdisAcquireSpinLock(&Adapter->Lock);
+    ASSERT(Adapter->PendingDisconnectOid == Request);
+    Adapter->PendingDisconnectOid = NULL;
+    NdisReleaseSpinLock(&Adapter->Lock);
+    return NDIS_STATUS_RESOURCES;
 }
 
 static
@@ -943,6 +979,7 @@ VWifiMiniportCancelOidRequest(
 {
     PVWIFI_ADAPTER Adapter = (PVWIFI_ADAPTER)MiniportAdapterContext;
     PNDIS_OID_REQUEST ScanOid = NULL;
+    PNDIS_OID_REQUEST DisconnectOid = NULL;
 
     NdisAcquireSpinLock(&Adapter->Lock);
     if (Adapter->PendingScanOid != NULL &&
@@ -951,7 +988,18 @@ VWifiMiniportCancelOidRequest(
         ScanOid = Adapter->PendingScanOid;
         Adapter->PendingScanOid = NULL;
     }
+    if (Adapter->PendingDisconnectOid != NULL &&
+        Adapter->PendingDisconnectOid->RequestId == RequestId)
+    {
+        DisconnectOid = Adapter->PendingDisconnectOid;
+        Adapter->PendingDisconnectOid = NULL;
+    }
     NdisReleaseSpinLock(&Adapter->Lock);
+
+    if (DisconnectOid != NULL && Adapter->MiniportAdapterHandle != NULL)
+    {
+        NdisMOidRequestComplete(Adapter->MiniportAdapterHandle, DisconnectOid, NDIS_STATUS_REQUEST_ABORTED);
+    }
 
     if (ScanOid != NULL && Adapter->MiniportAdapterHandle != NULL)
     {

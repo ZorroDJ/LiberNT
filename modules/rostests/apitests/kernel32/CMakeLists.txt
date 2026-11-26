@@ -17,6 +17,7 @@ list(APPEND SOURCE
     ComPlusPackageInstallStatus.c
     IntegratedDisplaySize.c
     Mailslot.c
+    GlobalMemoryStatusVirtual.c
     MessageWaitingIndicator.c
     TermsrvAppInstallMode.c
     ConsoleAlias.c
@@ -152,6 +153,7 @@ list(APPEND SOURCE
     MultiByteToWideChar.c
     NamedPipeClientComputerName.c
     NlsStringApis.c
+    NulDevice.c
     NumaApis.c
     PerfConsumer.c
     PerfProvider.c
@@ -183,6 +185,7 @@ list(APPEND SOURCE
     SetFileAllocationInfo.c
     SetStdHandleEx.c
     SecureMemoryCache.c
+    SetThreadIdealProcessor.c
     SetThreadStackGuarantee.c
     SetUnhandledExceptionFilter.c
     SetWaitableTimerEx.c

@@ -7,6 +7,7 @@ list(APPEND SOURCE
     AddMandatoryAce.c
     ControlServiceEx.c
     CopySid.c
+    FileSecurityOwner.c
     RedistributableFileOwner.c
     CreateProcessWithToken.c
     CreateProcessWithTokenChild.c
@@ -15,6 +16,7 @@ list(APPEND SOURCE
     DuplicateTokenEx.c
     EnableTraceEx.c
     EnumerateTraceGuidsEx.c
+    TraceCallback.c
     eventlog.c
     Hash.c
     HKEY_CLASSES_ROOT.c
@@ -22,6 +24,7 @@ list(APPEND SOURCE
     IntegrityLabels.c
     LogonSession.c
     LogonSessionEnd.c
+    LogonUserExEx.c
     LogonUserNetwork.c
     IsTextUnicode.c
     LocalSystemPrivileges.c

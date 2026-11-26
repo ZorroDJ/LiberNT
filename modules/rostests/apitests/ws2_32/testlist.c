@@ -5,6 +5,7 @@
 extern void func_BufferedRecv(void);
 extern void func_BusyLoopback(void);
 extern void func_CloseCompletion(void);
+extern void func_DuplicateSocketInherit(void);
 extern void func_GetAddrInfoEx(void);
 extern void func_MulticastInterface(void);
 extern void func_ReuseDelivery(void);
@@ -42,6 +43,7 @@ extern void func_WSAAsync(void);
 extern void func_WSAIoctl(void);
 extern void func_WSARecv(void);
 extern void func_WSASendMsg(void);
+extern void func_WSASendMsgAutoBind(void);
 extern void func_WSABufferArray(void);
 extern void func_WSAStartup(void);
 
@@ -50,6 +52,7 @@ const struct test winetest_testlist[] =
     { "BufferedRecv", func_BufferedRecv },
     { "BusyLoopback", func_BusyLoopback },
     { "CloseCompletion", func_CloseCompletion },
+    { "DuplicateSocketInherit", func_DuplicateSocketInherit },
     { "GetAddrInfoEx", func_GetAddrInfoEx },
     { "MulticastInterface", func_MulticastInterface },
     { "ReuseDelivery", func_ReuseDelivery },
@@ -87,6 +90,7 @@ const struct test winetest_testlist[] =
     { "WSAIoctl", func_WSAIoctl },
     { "WSARecv", func_WSARecv },
     { "WSASendMsg", func_WSASendMsg },
+    { "WSASendMsgAutoBind", func_WSASendMsgAutoBind },
     { "WSABufferArray", func_WSABufferArray },
     { "WSAStartup", func_WSAStartup },
     { 0, 0 }

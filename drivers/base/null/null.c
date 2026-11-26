@@ -9,10 +9,13 @@
 /* INCLUDES ******************************************************************/
 
 #include <wdm.h>
+#include <wdmsec.h>
 
 /* GLOBALS *******************************************************************/
 
 FAST_IO_DISPATCH FastIoDispatch;
+
+static const UNICODE_STRING NullDeviceSddl = RTL_CONSTANT_STRING(L"D:P(A;;GRGWGX;;;WD)(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;RC)");
 
 /* FUNCTIONS *****************************************************************/
 
@@ -182,13 +185,15 @@ DriverEntry(IN PDRIVER_OBJECT DriverObject,
     MmPageEntireDriver(DriverEntry);
 
     /* Create the Null device */
-    Status = IoCreateDevice(DriverObject,
-                            0,
-                            &DeviceName,
-                            FILE_DEVICE_NULL,
-                            FILE_DEVICE_SECURE_OPEN,
-                            FALSE,
-                            &DeviceObject);
+    Status = IoCreateDeviceSecure(DriverObject,
+                                  0,
+                                  &DeviceName,
+                                  FILE_DEVICE_NULL,
+                                  FILE_DEVICE_SECURE_OPEN,
+                                  FALSE,
+                                  &NullDeviceSddl,
+                                  NULL,
+                                  &DeviceObject);
     if (!NT_SUCCESS(Status))
         return Status;
 

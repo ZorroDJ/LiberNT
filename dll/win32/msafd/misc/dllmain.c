@@ -578,7 +578,7 @@ WSPDuplicateSocket(
                                   hProcess,
                                   (LPHANDLE)&hDuplicatedHandle,
                                   0,
-                                  FALSE,
+                                  TRUE,
                                   DUPLICATE_SAME_ACCESS);
     if( !bDuplicated )
     {

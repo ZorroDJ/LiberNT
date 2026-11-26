@@ -251,6 +251,28 @@ done:
     return hr;
 }
 
+BOOL dxgi_wddm_adapter_is_render_only_software(LUID luid)
+{
+    D3DKMT_OPENADAPTERFROMLUID open_adapter = {0};
+    D3DKMT_CLOSEADAPTER close_adapter;
+    D3DKMT_QUERYADAPTERINFO query = {0};
+    D3DKMT_ADAPTERTYPE type = {0};
+    BOOL found;
+
+    open_adapter.AdapterLuid = luid;
+    if (!NT_SUCCESS(D3DKMTOpenAdapterFromLuid(&open_adapter)))
+        return FALSE;
+    query.hAdapter = open_adapter.hAdapter;
+    query.Type = KMTQAITYPE_ADAPTERTYPE;
+    query.pPrivateDriverData = &type;
+    query.PrivateDriverDataSize = sizeof(type);
+    found = NT_SUCCESS(D3DKMTQueryAdapterInfo(&query)) && type.RenderSupported && type.SoftwareDevice &&
+            !type.DisplaySupported;
+    close_adapter.hAdapter = open_adapter.hAdapter;
+    D3DKMTCloseAdapter(&close_adapter);
+    return found;
+}
+
 BOOL dxgi_wddm_adapter_has_d3d11_umd(LUID luid)
 {
     D3DKMT_OPENADAPTERFROMLUID open_adapter = {0};
@@ -340,11 +362,11 @@ static unsigned int dxgi_get_wddm_adapter_priority(const D3DKMT_ADAPTERINFO *ada
 
     /* A software display fallback must not hide a separately started hardware
      * render adapter from clients which select the first DXGI adapter. */
+    if (!adapter_type.RenderSupported)
+        return 3;
     if (adapter_type.SoftwareDevice)
         return 2;
-    if (adapter_type.RenderSupported)
-        return 0;
-    return 1;
+    return 0;
 }
 
 DXGI_GPU_PREFERENCE dxgi_get_user_gpu_preference(void)
