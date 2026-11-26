@@ -8,12 +8,14 @@ extern void func_devclass(void);
 extern void func_DeviceClassName(void);
 extern void func_DeviceDescription(void);
 extern void func_DeviceExtension(void);
+extern void func_DeviceInterfaceAlias(void);
 extern void func_KmdfServiceSection(void);
 extern void func_PackageRootDevice(void);
 extern void func_DriverFeatureScore(void);
 extern void func_DriverFilesNeedReboot(void);
 extern void func_DriverPackageSignerScore(void);
 extern void func_DevicePdoName(void);
+extern void func_DeviceDisablePersist(void);
 extern void func_DevicePowerOnDisable(void);
 extern void func_DeviceRemoveVeto(void);
 extern void func_HostBridgeStart(void);
@@ -53,12 +55,14 @@ const struct test winetest_testlist[] =
     { "DeviceClassName", func_DeviceClassName },
     { "DeviceDescription", func_DeviceDescription },
     { "DeviceExtension", func_DeviceExtension },
+    { "DeviceInterfaceAlias", func_DeviceInterfaceAlias },
     { "KmdfServiceSection", func_KmdfServiceSection },
     { "PackageRootDevice", func_PackageRootDevice },
     { "DriverFeatureScore", func_DriverFeatureScore },
     { "DriverFilesNeedReboot", func_DriverFilesNeedReboot },
     { "DriverPackageSignerScore", func_DriverPackageSignerScore },
     { "DevicePdoName", func_DevicePdoName },
+    { "DeviceDisablePersist", func_DeviceDisablePersist },
     { "DevicePowerOnDisable", func_DevicePowerOnDisable },
     { "DeviceRemoveVeto", func_DeviceRemoveVeto },
     { "HostBridgeStart", func_HostBridgeStart },

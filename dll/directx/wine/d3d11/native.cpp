@@ -2101,6 +2101,7 @@ public:
     UINT data_size = 0;
     bool created = false;
     bool ended = false;
+    bool active = false;
     UINT8 pending_polls = 0;
     bool is_predicate = false;
     bool is_counter = false;
@@ -5384,6 +5385,26 @@ void STDMETHODCALLTYPE NativeContext::Flush() { if (deferred) return; NativeLock
 D3D11_DEVICE_CONTEXT_TYPE STDMETHODCALLTYPE NativeContext::GetType() { return deferred ? D3D11_DEVICE_CONTEXT_DEFERRED : D3D11_DEVICE_CONTEXT_IMMEDIATE; }
 UINT STDMETHODCALLTYPE NativeContext::GetContextFlags() { return 0; }
 
+extern "C" BOOL d3d11_native_adapter_is_software_render(IDXGIAdapter *adapter)
+{
+    DXGI_ADAPTER_DESC desc;
+    if (FAILED(adapter->GetDesc(&desc))) return FALSE;
+    D3DKMT_OPENADAPTERFROMLUID open = {};
+    open.AdapterLuid = desc.AdapterLuid;
+    if (!NT_SUCCESS(D3DKMTOpenAdapterFromLuid(&open))) return FALSE;
+    D3DKMT_ADAPTERTYPE type = {};
+    D3DKMT_QUERYADAPTERINFO query = {};
+    query.hAdapter = open.hAdapter;
+    query.Type = KMTQAITYPE_ADAPTERTYPE;
+    query.pPrivateDriverData = &type;
+    query.PrivateDriverDataSize = sizeof(type);
+    NTSTATUS status = D3DKMTQueryAdapterInfo(&query);
+    D3DKMT_CLOSEADAPTER close = {};
+    close.hAdapter = open.hAdapter;
+    D3DKMTCloseAdapter(&close);
+    return NT_SUCCESS(status) && type.RenderSupported && type.SoftwareDevice;
+}
+
 extern "C" HRESULT d3d11_native_create_device(IDXGIAdapter *adapter, UINT flags,
         const D3D_FEATURE_LEVEL *levels, UINT count, ID3D11Device **out)
 {
@@ -6772,7 +6793,7 @@ void STDMETHODCALLTYPE NativeContext::SetPredication(ID3D11Predicate *value, BOO
     if (!deferred)
     {
         D3D10DDI_HQUERY handle = {};
-        if (query) handle = query->handle;
+        if (query && !query->active) handle = query->handle;
         device->functions.pfnSetPredication(device->driver_device, handle, expected);
     }
     ReplaceObject(predicate, value);
@@ -6801,6 +6822,13 @@ void STDMETHODCALLTYPE NativeContext::Begin(ID3D11Asynchronous *async)
     if (query->device != device || query->desc.Query == D3D11_QUERY_EVENT || query->desc.Query == D3D11_QUERY_TIMESTAMP) return;
     NativeLock guard(device);
     query->ended = false;
+    /* QueryBegin never reaches the driver for the predicate it predicates on: predication stops until End */
+    if (query->is_predicate && predicate && NativeQuery::FromPredicate(predicate) == query && device->functions.pfnSetPredication)
+    {
+        D3D10DDI_HQUERY none = {};
+        device->functions.pfnSetPredication(device->driver_device, none, predicate_value);
+    }
+    query->active = true;
     device->functions.pfnQueryBegin(device->driver_device, query->handle);
 }
 void STDMETHODCALLTYPE NativeContext::End(ID3D11Asynchronous *async)
@@ -6820,6 +6848,12 @@ void STDMETHODCALLTYPE NativeContext::End(ID3D11Asynchronous *async)
     device->functions.pfnQueryEnd(device->driver_device, query->handle);
     query->ended = true;
     query->pending_polls = 0;
+    if (query->active && query->is_predicate && predicate && NativeQuery::FromPredicate(predicate) == query &&
+        device->functions.pfnSetPredication)
+    {
+        device->functions.pfnSetPredication(device->driver_device, query->handle, predicate_value);
+    }
+    query->active = false;
 }
 HRESULT STDMETHODCALLTYPE NativeContext::GetData(ID3D11Asynchronous *async, void *data, UINT size, UINT flags)
 {

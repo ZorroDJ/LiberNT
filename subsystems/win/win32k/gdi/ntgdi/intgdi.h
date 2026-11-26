@@ -21,6 +21,9 @@ extern HSEMAPHORE hsemDriverMgmt;
 MIX FASTCALL
 IntGdiLineMix(DC *dc);
 
+BOOL
+IntIsMappedUserRange(const VOID *Address, SIZE_T Size);
+
 BOOL FASTCALL
 IntGdiLineTo(DC  *dc,
              int XEnd,
@@ -92,9 +95,6 @@ IntSetSysColors(UINT nColors, CONST INT *Elements, CONST COLORREF *Colors, BOOL 
 
 HGDIOBJ FASTCALL
 IntGetSysColorBrush(INT Object);
-
-VOID FASTCALL
-IntSetSystemColorScheme(BOOL Dark);
 
 DWORD FASTCALL
 IntGetSysColor(INT nIndex);

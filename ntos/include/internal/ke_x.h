@@ -1487,10 +1487,24 @@ KiCompleteThreadSwitch(
     if (ReadyTransition)
     {
         KiDeferredReadyThread(OldThread);
+        KiCheckDeferredReadyList(Prcb);
         if (Prcb->NextThread != NULL)
             KiRequestDispatchInterrupt(Prcb);
     }
     else if (ReapThread)
+        KiQueueThreadForReaping(OldThread);
+}
+#else
+
+FORCEINLINE
+VOID
+KiCompleteThreadSwitch(
+    _In_ PKTHREAD OldThread,
+    _In_ PKTHREAD NewThread)
+{
+    UNREFERENCED_PARAMETER(NewThread);
+
+    if (OldThread->State == Terminated)
         KiQueueThreadForReaping(OldThread);
 }
 #endif
@@ -1620,6 +1634,7 @@ KxQueueReadyThread(
         Thread->State = DeferredReady;
         KiReleasePrcbLock(Prcb);
         KiDeferredReadyThread(Thread);
+        KiCheckDeferredReadyList(Prcb);
         return;
     }
 

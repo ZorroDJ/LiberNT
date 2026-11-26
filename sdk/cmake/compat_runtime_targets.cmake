@@ -245,6 +245,7 @@ set(COMPAT_RUNTIME_MODULES
     qmgrprxy
     quartz
     query
+    qwave
     rasadhlp
     rasapi32
     rasdlg
@@ -261,6 +262,7 @@ set(COMPAT_RUNTIME_MODULES
     rtworkq
     samcli
     samlib
+    sas
     schannel
     scrrun
     sechost

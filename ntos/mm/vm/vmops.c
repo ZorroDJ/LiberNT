@@ -1245,6 +1245,46 @@ MiFreePlaceholder(
     return STATUS_SUCCESS;
 }
 
+VOID
+MiSetVadNoChange(
+    _Inout_ PMI_ADDRESS_SPACE Space,
+    _In_ ULONG64 Base,
+    _In_ BOOLEAN NoChange)
+{
+    PMI_VAD Vad;
+
+    MI_RW_ACQUIRE_EXCLUSIVE(&Space->Lock);
+    Vad = MiVadLocate(Space, Base);
+    /* No VAD at Base is a benign no-op (e.g. OOBE's storage-expansion path when
+     * expansion is not offered), handled by the guard below; only a VAD that
+     * exists must start exactly at Base. */
+    MI_ASSERT(Vad == NULL || MI_VAD_START(Vad) == Base);
+    if (Vad != NULL)
+        Vad->NoChange = NoChange;
+    MI_RW_RELEASE_EXCLUSIVE(&Space->Lock);
+}
+
+BOOLEAN
+MiClearVadNoChangeIfPresent(
+    _Inout_ PMI_ADDRESS_SPACE Space,
+    _In_ ULONG64 Base)
+{
+    PMI_VAD Vad;
+
+    MI_RW_ACQUIRE_EXCLUSIVE(&Space->Lock);
+    Vad = MiVadLocate(Space, Base);
+    if (Vad == NULL)
+    {
+        MI_ASSERT(MiVadFirst(&Space->VadRoot) == NULL);
+        MI_RW_RELEASE_EXCLUSIVE(&Space->Lock);
+        return FALSE;
+    }
+    MI_ASSERT(MI_VAD_START(Vad) == Base);
+    Vad->NoChange = FALSE;
+    MI_RW_RELEASE_EXCLUSIVE(&Space->Lock);
+    return TRUE;
+}
+
 NTSTATUS
 MiFreeVirtualMemory(
     _Inout_ PMI_ADDRESS_SPACE Space,
@@ -1271,6 +1311,12 @@ MiFreeVirtualMemory(
     {
         MI_RW_RELEASE_EXCLUSIVE(&Space->Lock);
         return STATUS_MEMORY_NOT_ALLOCATED;
+    }
+
+    if (Vad->NoChange)
+    {
+        MI_RW_RELEASE_EXCLUSIVE(&Space->Lock);
+        return FreeType == MI_MEM_RELEASE ? STATUS_FREE_VM_NOT_AT_BASE : STATUS_INVALID_PAGE_PROTECTION;
     }
 
     if (Vad->Type == MiVadAwe)
@@ -1582,6 +1628,18 @@ MiProtectVirtualMemoryEx(
 
     if (*RegionSize == 0 || End <= Start)
         return STATUS_INVALID_PARAMETER;
+
+    if (!MI_PROT_IS_WRITABLE(NewProtection) || MI_PROT_IS_GUARD(NewProtection))
+    {
+        BOOLEAN NoChange;
+
+        MI_RW_ACQUIRE_SHARED(&Space->Lock);
+        Vad = MiVadLocate(Space, Start);
+        NoChange = (BOOLEAN)(Vad != NULL && Vad->NoChange);
+        MI_RW_RELEASE_SHARED(&Space->Lock);
+        if (NoChange)
+            return STATUS_INVALID_PAGE_PROTECTION;
+    }
 
     if (MiProtectPrivateShared(Space, Start, End, NewProtection, DenyDynamicCode, OldProtection, &Status))
     {

@@ -15,6 +15,9 @@
 #include <datagram.h>
 #include <pseh/pseh2.h>
 #include <tcpip_undoc.h>
+#include <libernt/drivers/qosmark.h>
+
+C_ASSERT(TCP_SOCKET_QOS_DSCP == AO_OPTION_QOS_DSCP);
 
 typedef struct _QUERY_HW_WORK_ITEM {
     PIO_WORKITEM WorkItem;
@@ -1713,6 +1716,11 @@ NTSTATUS DispTdiQueryInformationEx(
                 IoFreeMdl(OutputMdl);
             }
 
+            if (QueryContext->KernelInputBuffer)
+                ExFreePoolWithTag(QueryContext->KernelInputBuffer, QUERY_CONTEXT_TAG);
+            if (QueryContext->KernelOutputBuffer)
+                ExFreePoolWithTag(QueryContext->KernelOutputBuffer, QUERY_CONTEXT_TAG);
+
             ExFreePoolWithTag(QueryContext, QUERY_CONTEXT_TAG);
         } else
             Status = STATUS_INSUFFICIENT_RESOURCES;
@@ -1776,6 +1784,13 @@ NTSTATUS DispTdiSetInformationEx(
 
     Request.RequestNotifyObject = NULL;
     Request.RequestContext      = NULL;
+
+    if (Irp->RequestorMode != KernelMode && Info->ID.toi_class == INFO_CLASS_PROTOCOL &&
+        Info->ID.toi_id == AO_OPTION_QOS_DSCP &&
+        (Info->ID.toi_type == INFO_TYPE_ADDRESS_OBJECT || Info->ID.toi_type == INFO_TYPE_CONNECTION))
+    {
+        return STATUS_ACCESS_DENIED;
+    }
 
     if ((ULONG_PTR)IrpSp->FileObject->FsContext2 == TDI_TRANSPORT_ADDRESS_FILE &&
         Info->ID.toi_class == INFO_CLASS_PROTOCOL)

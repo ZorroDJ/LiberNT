@@ -56,6 +56,7 @@ AfdGetDisconnectOptions(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PFILE_OBJECT FileObject = IrpSp->FileObject;
     PAFD_FCB FCB = FileObject->FsContext;
     UINT BufferSize = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+    NTSTATUS Status;
 
     UNREFERENCED_PARAMETER(DeviceObject);
 
@@ -71,11 +72,9 @@ AfdGetDisconnectOptions(PDEVICE_OBJECT DeviceObject, PIRP Irp,
 
     if (FCB->FilledDisconnectOptions < BufferSize) BufferSize = FCB->FilledDisconnectOptions;
 
-    RtlCopyMemory(Irp->UserBuffer,
-                  FCB->DisconnectOptions,
-                  BufferSize);
+    Status = AfdCopyToUserBuffer(Irp, FCB->DisconnectOptions, BufferSize);
 
-    return UnlockAndMaybeComplete(FCB, STATUS_SUCCESS, Irp, BufferSize);
+    return UnlockAndMaybeComplete(FCB, Status, Irp, NT_SUCCESS(Status) ? BufferSize : 0);
 }
 
 NTSTATUS
@@ -167,6 +166,7 @@ AfdGetDisconnectData(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     PFILE_OBJECT FileObject = IrpSp->FileObject;
     PAFD_FCB FCB = FileObject->FsContext;
     UINT BufferSize = IrpSp->Parameters.DeviceIoControl.OutputBufferLength;
+    NTSTATUS Status;
 
     UNREFERENCED_PARAMETER(DeviceObject);
 
@@ -183,11 +183,9 @@ AfdGetDisconnectData(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     if (FCB->FilledDisconnectData < BufferSize)
         BufferSize = FCB->FilledDisconnectData;
 
-    RtlCopyMemory(Irp->UserBuffer,
-                  FCB->DisconnectData,
-                  BufferSize);
+    Status = AfdCopyToUserBuffer(Irp, FCB->DisconnectData, BufferSize);
 
-    return UnlockAndMaybeComplete(FCB, STATUS_SUCCESS, Irp, BufferSize);
+    return UnlockAndMaybeComplete(FCB, Status, Irp, NT_SUCCESS(Status) ? BufferSize : 0);
 }
 
 NTSTATUS
@@ -332,24 +330,40 @@ AfdGetTdiHandles(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     if (!NT_SUCCESS(Status))
         return UnlockAndMaybeComplete(FCB, Status, Irp, 0);
 
-    if (Is32Bit)
+    _SEH2_TRY
     {
-        if ((*HandleFlags) & AFD_ADDRESS_HANDLE)
-            HandleData32->TdiAddressHandle = HandleToUlong(AddressHandle);
+        if (Is32Bit)
+        {
+            if ((*HandleFlags) & AFD_ADDRESS_HANDLE)
+                HandleData32->TdiAddressHandle = HandleToUlong(AddressHandle);
 
-        if ((*HandleFlags) & AFD_CONNECTION_HANDLE)
-            HandleData32->TdiConnectionHandle = HandleToUlong(ConnectionHandle);
+            if ((*HandleFlags) & AFD_CONNECTION_HANDLE)
+                HandleData32->TdiConnectionHandle = HandleToUlong(ConnectionHandle);
+        }
+        else
+        {
+            if ((*HandleFlags) & AFD_ADDRESS_HANDLE)
+                HandleData->TdiAddressHandle = AddressHandle;
 
-        return UnlockAndMaybeComplete(FCB, STATUS_SUCCESS, Irp, 0);
+            if ((*HandleFlags) & AFD_CONNECTION_HANDLE)
+                HandleData->TdiConnectionHandle = ConnectionHandle;
+        }
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        Status = _SEH2_GetExceptionCode();
+    }
+    _SEH2_END;
+
+    if (!NT_SUCCESS(Status))
+    {
+        if (AddressHandle != NULL)
+            ZwClose(AddressHandle);
+        if (ConnectionHandle != NULL)
+            ZwClose(ConnectionHandle);
     }
 
-    if ((*HandleFlags) & AFD_ADDRESS_HANDLE)
-        HandleData->TdiAddressHandle = AddressHandle;
-
-    if ((*HandleFlags) & AFD_CONNECTION_HANDLE)
-        HandleData->TdiConnectionHandle = ConnectionHandle;
-
-    return UnlockAndMaybeComplete(FCB, STATUS_SUCCESS, Irp, 0);
+    return UnlockAndMaybeComplete(FCB, Status, Irp, 0);
 }
 
 static NTSTATUS NTAPI
@@ -416,6 +430,7 @@ AfdCreateSocket(PDEVICE_OBJECT DeviceObject, PIRP Irp,
     RtlZeroMemory( FCB, sizeof( *FCB ) );
 
     FCB->Flags = ConnectInfo ? ConnectInfo->EndpointFlags : 0;
+    FCB->QosDscp = QOS_MARK_UNMARKED;
     FCB->GroupID = ConnectInfo ? ConnectInfo->GroupID : 0;
     FCB->GroupType = 0; /* FIXME */
     FCB->SharedData.State = SOCKET_STATE_CREATED;
@@ -1228,6 +1243,13 @@ AfdDispatch(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     case IRP_MJ_QUERY_VOLUME_INFORMATION:
         return AfdQueryVolumeInformation(DeviceObject, Irp, IrpSp);
 
+    case IRP_MJ_INTERNAL_DEVICE_CONTROL:
+        if (IrpSp->Parameters.DeviceIoControl.IoControlCode == IOCTL_AFD_SET_QOS_DSCP)
+            return AfdSetQosDscp(DeviceObject, Irp, IrpSp);
+        Irp->IoStatus.Status = STATUS_INVALID_DEVICE_REQUEST;
+        IoCompleteRequest(Irp, IO_NO_INCREMENT);
+        return STATUS_INVALID_DEVICE_REQUEST;
+
     case IRP_MJ_DEVICE_CONTROL:
     {
         switch( IrpSp->Parameters.DeviceIoControl.IoControlCode ) {
@@ -1682,6 +1704,7 @@ DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     DriverObject->MajorFunction[IRP_MJ_WRITE] = AfdDispatch;
     DriverObject->MajorFunction[IRP_MJ_READ] = AfdDispatch;
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = AfdDispatch;
+    DriverObject->MajorFunction[IRP_MJ_INTERNAL_DEVICE_CONTROL] = AfdDispatch;
     DriverObject->MajorFunction[IRP_MJ_QUERY_VOLUME_INFORMATION] = AfdDispatch;
     DriverObject->DriverUnload = AfdUnload;
     AfdFastIoDispatch.SizeOfFastIoDispatch = sizeof(AfdFastIoDispatch);

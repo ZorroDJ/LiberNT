@@ -147,7 +147,7 @@ jobs:
     - name: Build images
       run: |
         . "$HOME/.local/opt/rosbe/rosbe-env.sh"
-        TARGETS=bootcd
+        TARGETS=liberntiso
         [ "$BUILD_TYPE" = "debug" ] && TARGETS="$TARGETS liberntimg liberntvhd"
         ninja -C ${{steps.configure.outputs.outdir}} $TARGETS -k0
 
@@ -188,7 +188,7 @@ jobs:
 
     - name: Name bootcd.iso
       run: |
-        ISO=${{steps.configure.outputs.outdir}}/bootcd.iso
+        ISO=${{steps.configure.outputs.outdir}}/LiberNT.iso
         if [ -f "$ISO" ]; then ln -f "$ISO" "${{steps.configure.outputs.outdir}}/bootcd-${{steps.images.outputs.tag}}.iso"; fi
 
     - name: Upload bootcd.iso

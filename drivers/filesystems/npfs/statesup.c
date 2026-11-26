@@ -25,7 +25,8 @@ NpCancelListeningQueueIrp(IN PDEVICE_OBJECT DeviceObject,
     FsRtlEnterFileSystem();
     NpAcquireExclusiveVcb();
 
-    RemoveEntryList(&Irp->Tail.Overlay.ListEntry);
+    if (!IsListEmpty(&Irp->Tail.Overlay.ListEntry))
+        RemoveEntryList(&Irp->Tail.Overlay.ListEntry);
 
     NpReleaseVcb();
     FsRtlExitFileSystem();
@@ -204,8 +205,7 @@ NpSetListeningPipeState(IN PNP_CCB Ccb,
                 if (!NT_SUCCESS(Status)) return Status;
             }
 
-            RemoveEntryList(&Ccb->CcbEntry);
-            InsertTailList(&Ccb->Fcb->CcbList, &Ccb->CcbEntry);
+            /* FIXME: a relistening instance keeps its place among the FCB's instances; moving it here raced other listeners, which hold the VCB shared */
 
         //
         // Drop down on purpose

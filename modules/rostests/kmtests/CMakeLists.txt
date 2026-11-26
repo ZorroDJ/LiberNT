@@ -160,6 +160,7 @@ list(APPEND KMTEST_DRV_SOURCE
     ntos_etw/EtwSessionKM.c
     ntos_wmi/PcwKM.c
     ntos_wmi/WmiEventKM.c
+    ntos_ex/ExAuxKlibFirmwareTable.c
     ntos_ex/ExCallback.c
     ntos_ex/ExCallbackExtra.c
     ntos_ex/ExDoubleList.c
@@ -206,6 +207,7 @@ list(APPEND KMTEST_DRV_SOURCE
     ntos_io/IoCancelKM.c
     ntos_io/IoCloseIrqlKM.c
     ntos_io/IoContainerId.c
+    ntos_io/IoRootPdo.c
     ntos_io/IoCreateDeviceSecure.c
     ntos_io/IoDeleteDeviceName.c
     ntos_io/IoReadPartitionTable.c
@@ -229,6 +231,7 @@ list(APPEND KMTEST_DRV_SOURCE
     ntos_io/IoResourceSearch.c
     ntos_io/IoMessageInterruptClaim.c
     ntos_io/IoCreateDriverContext.c
+    ntos_io/IoDefaultDispatch.c
     ntos_io/PciLineInterrupt.c
     ntos_io/IoStorageDumpPath.c
     ntos_io/IoFilesystem.c
@@ -384,7 +387,7 @@ list(APPEND KMTEST_DRV_SOURCE
     ntos_po/PoSettingSession.c
     ntos_po/PoPowerLimit.c
     ntos_po/PoPowerSettings.c
-    ntos_po/PoProcessorStateHandler.c
+    ntos_po/PoPpmProcessor.c
     ntos_po/PoKernelPowerRequest.c
     ntos_po/PoLockConsoleOnWake.c
     ntos_ps/PsNotify.c
@@ -594,7 +597,7 @@ elseif(CMAKE_C_COMPILER_ID STREQUAL "Clang")
 else()
     target_link_options(kmtest_drv PRIVATE -Wl,--forceinteg)
 endif()
-target_link_libraries(kmtest_drv kmtest_printf chkstk memcmp poguid wdmguid arblib wdmsec ${PSEH_LIB})
+target_link_libraries(kmtest_drv kmtest_printf chkstk memcmp poguid wdmguid arblib wdmsec aux_klib ${PSEH_LIB})
 add_importlibs(kmtest_drv battc ks ksecdd ndis smclib ntoskrnl hal)
 if(REACTOS_USE_WDDM)
     add_importlibs(kmtest_drv dxgkrnl dxgmms2)

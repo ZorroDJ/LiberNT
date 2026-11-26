@@ -4,6 +4,7 @@ list(APPEND SOURCE
     AltTabHook.c
     AnimatedCursor.c
     AttachThreadInput.c
+    BoolReturnValues.c
     ../include/msgtrace.c
     CalculatePopupWindowPosition.c
     CallWindowProc.c
@@ -19,6 +20,7 @@ list(APPEND SOURCE
     CopyImage_Icon.c
     CursorPresentation.c
     CreateDialog.c
+    CreateStructHook.c
     CreateIconFromResourceEx.c
     CoveredWindow.c
     CreateWindowEx.c
@@ -103,6 +105,7 @@ list(APPEND SOURCE
     NonClientUpdate.c
     OwnedZOrder.c
     OwnerDestroy.c
+    OwnerDrawButtonCues.c
     PersianLayout.c
     PhysicalPoint.c
     PhysicalToLogicalPoint.c
@@ -112,6 +115,7 @@ list(APPEND SOURCE
     RealGetWindowClass.c
     RedrawWindow.c
     RegisterClassEx.c
+    RegisterDeviceNotification.c
     RegisterHotKey.c
     ScrollBarRedraw.c
     ScrollBarWndExtra.c

@@ -6,6 +6,7 @@ extern void func_RegisterTouchWindow(void);
 extern void func_AltTabHook(void);
 extern void func_AnimatedCursor(void);
 extern void func_AttachThreadInput(void);
+extern void func_BoolReturnValues(void);
 extern void func_CalculatePopupWindowPosition(void);
 extern void func_CallbackNesting(void);
 extern void func_CharFuncs(void);
@@ -16,6 +17,7 @@ extern void func_CopyImage(void);
 extern void func_CopyImage_Icon(void);
 extern void func_CursorPresentation(void);
 extern void func_CreateDialog(void);
+extern void func_CreateStructHook(void);
 extern void func_CreateIconFromResourceEx(void);
 extern void func_CoveredWindow(void);
 extern void func_CreateWindowEx(void);
@@ -105,6 +107,7 @@ extern void func_NonClientPaint(void);
 extern void func_NonClientUpdate(void);
 extern void func_OwnedZOrder(void);
 extern void func_OwnerDestroy(void);
+extern void func_OwnerDrawButtonCues(void);
 extern void func_PersianLayout(void);
 extern void func_PhysicalPoint(void);
 extern void func_PhysicalToLogicalPoint(void);
@@ -114,6 +117,7 @@ extern void func_RealGetWindowClass(void);
 extern void func_RedrawWindow(void);
 extern void func_RegisterHotKey(void);
 extern void func_RegisterClassEx(void);
+extern void func_RegisterDeviceNotification(void);
 extern void func_ScrollBarRedraw(void);
 extern void func_ScrollBarWndExtra(void);
 extern void func_ScrollDC(void);
@@ -166,6 +170,7 @@ const struct test winetest_testlist[] =
     { "AltTabHook", func_AltTabHook },
     { "AnimatedCursor", func_AnimatedCursor },
     { "AttachThreadInput", func_AttachThreadInput },
+    { "BoolReturnValues", func_BoolReturnValues },
     { "CalculatePopupWindowPosition", func_CalculatePopupWindowPosition },
     { "CallbackNesting", func_CallbackNesting },
     { "CharFuncs", func_CharFuncs },
@@ -176,6 +181,7 @@ const struct test winetest_testlist[] =
     { "CopyImage_Icon", func_CopyImage_Icon },
     { "CursorPresentation", func_CursorPresentation },
     { "CreateDialog", func_CreateDialog },
+    { "CreateStructHook", func_CreateStructHook },
     { "CreateIconFromResourceEx", func_CreateIconFromResourceEx },
     { "CoveredWindow", func_CoveredWindow },
     { "CreateWindowEx", func_CreateWindowEx },
@@ -265,6 +271,7 @@ const struct test winetest_testlist[] =
     { "NonClientUpdate", func_NonClientUpdate },
     { "OwnedZOrder", func_OwnedZOrder },
     { "OwnerDestroy", func_OwnerDestroy },
+    { "OwnerDrawButtonCues", func_OwnerDrawButtonCues },
     { "PersianLayout", func_PersianLayout },
     { "PhysicalPoint", func_PhysicalPoint },
     { "PhysicalToLogicalPoint", func_PhysicalToLogicalPoint },
@@ -274,6 +281,7 @@ const struct test winetest_testlist[] =
     { "RedrawWindow", func_RedrawWindow },
     { "RegisterHotKey", func_RegisterHotKey },
     { "RegisterClassEx", func_RegisterClassEx },
+    { "RegisterDeviceNotification", func_RegisterDeviceNotification },
     { "ScrollBarRedraw", func_ScrollBarRedraw },
     { "ScrollBarWndExtra", func_ScrollBarWndExtra },
     { "ScrollDC", func_ScrollDC },

@@ -330,6 +330,7 @@ PspQueryImageFileName(
     _Out_ PULONG ReturnLength)
 {
     POBJECT_NAME_INFORMATION Name;
+    POBJECT_NAME_INFORMATION Current = NULL;
     UNICODE_STRING Empty;
     UNICODE_STRING DosName;
     UNICODE_STRING Combined;
@@ -357,11 +358,21 @@ PspQueryImageFileName(
     if (!NT_SUCCESS(Status))
         return PspReturnString(&Name->Name, Buffer, Length, ReturnLength);
 
+    if (NT_SUCCESS(SeInitializeProcessAuditName(FileObject, FALSE, &Current)))
+    {
+        ASSERT(Current != NULL);
+        Name = Current;
+    }
+
     Status = IoVolumeDeviceToDosName(FileObject->DeviceObject, &DosName);
     ObDereferenceObject(FileObject);
 
     if (!NT_SUCCESS(Status))
-        return PspReturnString(&Name->Name, Buffer, Length, ReturnLength);
+    {
+        Status = PspReturnString(&Name->Name, Buffer, Length, ReturnLength);
+        if (Current != NULL) ExFreePoolWithTag(Current, TAG_SEPA);
+        return Status;
+    }
 
     /*
      * The native path begins with the device the volume is reached by, and
@@ -375,6 +386,7 @@ PspQueryImageFileName(
     if (Combined.Buffer == NULL)
     {
         ExFreePool(DosName.Buffer);
+        if (Current != NULL) ExFreePoolWithTag(Current, TAG_SEPA);
         return STATUS_INSUFFICIENT_RESOURCES;
     }
 
@@ -407,6 +419,7 @@ PspQueryImageFileName(
     }
 
     ExFreePool(DosName.Buffer);
+    if (Current != NULL) ExFreePoolWithTag(Current, TAG_SEPA);
 
     Status = PspReturnString(&Combined, Buffer, Length, ReturnLength);
     ExFreePoolWithTag(Combined.Buffer, TAG_SEPA);
@@ -447,19 +460,28 @@ PspQueryCommandLine(
 
     _SEH2_TRY
     {
-        PRTL_USER_PROCESS_PARAMETERS Parameters = Peb->ProcessParameters;
+        PRTL_USER_PROCESS_PARAMETERS Parameters;
+        UNICODE_STRING CommandLine;
 
-        if (Parameters != NULL &&
-            Parameters->CommandLine.Length != 0 &&
-            Parameters->CommandLine.Buffer != NULL)
+        ProbeForRead(&Peb->ProcessParameters, sizeof(Peb->ProcessParameters), sizeof(PVOID));
+        Parameters = *(PRTL_USER_PROCESS_PARAMETERS volatile *)&Peb->ProcessParameters;
+        RtlInitEmptyUnicodeString(&CommandLine, NULL, 0);
+        if (Parameters != NULL)
         {
-            CopyLength = Parameters->CommandLine.Length;
+            ProbeForRead(&Parameters->CommandLine, sizeof(Parameters->CommandLine), sizeof(PVOID));
+            CommandLine = *(volatile UNICODE_STRING *)&Parameters->CommandLine;
+        }
+
+        if (CommandLine.Length != 0 && CommandLine.Buffer != NULL)
+        {
+            CopyLength = CommandLine.Length;
+            ProbeForRead(CommandLine.Buffer, CopyLength, 1);
 
             Copy = ExAllocatePoolWithTag(PagedPool, CopyLength, TAG_SEPA);
             if (Copy != NULL)
             {
                 RtlCopyMemory(Copy,
-                              Parameters->CommandLine.Buffer,
+                              CommandLine.Buffer,
                               CopyLength);
             }
             else

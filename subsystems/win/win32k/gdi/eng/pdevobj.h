@@ -218,6 +218,28 @@ PDEVOBJ_bSwitchMode(
 
 BOOL
 NTAPI
+PDEVOBJ_bAttachDisplay(
+    _Inout_ PMDEVOBJ *ppmdev,
+    _In_ PGRAPHICS_DEVICE pGraphicsDevice,
+    _In_ PDEVMODEW pdm,
+    _Out_ PPDEVOBJ *pppdevDisplay);
+
+BOOL
+NTAPI
+PDEVOBJ_bDetachDisplay(
+    _Inout_ PMDEVOBJ *ppmdev,
+    _In_ PPDEVOBJ ppdevDisplay,
+    _Out_ PPDEVOBJ *pppdevRemaining);
+
+BOOL
+NTAPI
+PDEVOBJ_bSwitchMultiDisplayMode(
+    _Inout_ PMDEVOBJ pmdev,
+    _Inout_ PPDEVOBJ ppdevDisplay,
+    _In_ PDEVMODEW pdm);
+
+BOOL
+NTAPI
 PDEVOBJ_bDynamicModeChange(
     _Inout_ PPDEVOBJ ppdev,
     _Inout_ PPDEVOBJ ppdev2);

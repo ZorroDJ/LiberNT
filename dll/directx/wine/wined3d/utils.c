@@ -3453,6 +3453,10 @@ static void apply_format_fixups(struct wined3d_adapter *adapter, struct wined3d_
 
         {WINED3DFMT_INTZ,                  "XXXX", FALSE, WINED3D_GL_EXT_NONE},
         {WINED3DFMT_INTZ,                  "XYZW", FALSE, WINED3D_GL_LEGACY_CONTEXT},
+#ifdef __REACTOS__
+        /* GLSL 1.30+ ignores GL_DEPTH_TEXTURE_MODE, so a legacy context needs the swizzle too */
+        {WINED3DFMT_INTZ,                  "XXXX", FALSE, ARB_TEXTURE_SWIZZLE},
+#endif
 
         {WINED3DFMT_L8_UNORM,              "XXX1", FALSE, ARB_TEXTURE_RG},
     };
@@ -5737,7 +5741,11 @@ BOOL wined3d_get_primary_adapter_luid(LUID *luid)
         return FALSE;
 
     if (D3DKMTOpenAdapterFromGdiDisplayName(&open_adapter_param))
+#if defined(__REACTOS__) && defined(REACTOS_WINE_WDDM)
+        return wined3d_get_first_wddm_adapter_luid(luid);
+#else
         return FALSE;
+#endif
 
     *luid = open_adapter_param.AdapterLuid;
     close_adapter_param.hAdapter = open_adapter_param.hAdapter;

@@ -13,6 +13,7 @@ list(APPEND SOURCE
     LocalizedName.cpp
     SHAssocEnumHandlers.cpp
     SHGetDriveMedia.cpp
+    StockIconResources.c
     CFSFolder.cpp
     CheckEscapes.cpp
     CIDLData.cpp
@@ -31,6 +32,7 @@ list(APPEND SOURCE
     GetDisplayNameOf.cpp
     GUIDFromString.cpp
     IconPositions.cpp
+    ImageAssociations.cpp
     LockServer.cpp
     Int64ToString.cpp
     IShellFolderViewCB.cpp
@@ -89,6 +91,7 @@ list(APPEND SOURCE
     shelltest.cpp)
 
 list(APPEND PCH_SKIP_SOURCE
+    LargeFileSize.c
     ModernShell.c
     StartMenuPin.c
     Win81Ordinals.c

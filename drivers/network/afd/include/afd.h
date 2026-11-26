@@ -24,6 +24,7 @@
 #include <afd/shared.h>
 #include <pseh/pseh2.h>
 
+#include <libernt/drivers/qosmark.h>
 #include "tdi_proto.h"
 #include "tdiconn.h"
 #include "debug.h"
@@ -310,6 +311,7 @@ typedef struct _AFD_FCB {
     LIST_ENTRY DatagramList;
     LIST_ENTRY PendingConnections;
     LIST_ENTRY AddressListChangeEntry;
+    ULONG QosDscp;
 } AFD_FCB, *PAFD_FCB;
 
 /* bind.c */
@@ -374,6 +376,12 @@ BOOLEAN
 AfdTryApplyPendingReceiveWindow(PAFD_FCB FCB);
 
 NTSTATUS
+AfdApplyQosMarking(PAFD_FCB FCB);
+
+NTSTATUS NTAPI
+AfdSetQosDscp(PDEVICE_OBJECT DeviceObject, PIRP Irp, PIO_STACK_LOCATION IrpSp);
+
+NTSTATUS
 AfdRearmDatagram(PAFD_FCB FCB);
 
 NTSTATUS NTAPI
@@ -422,6 +430,7 @@ VOID UnlockHandles( PAFD_HANDLE HandleArray, UINT HandleCount );
 PVOID LockRequest( PIRP Irp, PIO_STACK_LOCATION IrpSp, BOOLEAN Output, KPROCESSOR_MODE *LockMode );
 VOID UnlockRequest( PIRP Irp, PIO_STACK_LOCATION IrpSp );
 PVOID GetLockedData( PIRP Irp, PIO_STACK_LOCATION IrpSp );
+NTSTATUS AfdCopyToUserBuffer(PIRP Irp, PVOID Source, ULONG Length);
 BOOLEAN AfdCaptureRecvRequest(PVOID InputBuffer, ULONG InputBufferLength, KPROCESSOR_MODE Mode, BOOLEAN Is32Bit, PAFD_RECV_INFO Request);
 VOID AfdReadUserWsaBuf(PAFD_WSABUF Array, UINT Index, KPROCESSOR_MODE Mode, BOOLEAN Is32Bit, PAFD_WSABUF Buffer);
 NTSTATUS LeaveIrpUntilLater( PAFD_FCB FCB, PIRP Irp, UINT Function );

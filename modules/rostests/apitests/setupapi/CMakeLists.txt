@@ -6,6 +6,7 @@ list(APPEND SOURCE
     DeviceClassName.c
     DeviceDescription.c
     DeviceExtension.c
+    DeviceInterfaceAlias.c
     KmdfServiceSection.c
     PackageRootDevice.c
     DriverFeatureScore.c
@@ -14,6 +15,7 @@ list(APPEND SOURCE
     HalDeviceIds.c
     DevicePdoName.c
     DisableableParents.c
+    DeviceDisablePersist.c
     DevicePowerOnDisable.c
     DeviceRemoveVeto.c
     HostBridgeStart.c

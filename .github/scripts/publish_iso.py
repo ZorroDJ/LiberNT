@@ -119,7 +119,7 @@ def main():
         checksum.write_text(f"{digest}  {image_name}\n")
         notes = work / "notes.md"
         notes.write_text(
-            f"AMD64 Release ISO with DarkMode and the fork customizations.\n\n"
+            f"AMD64 Release ISO of the fork, published on its own update channel.\n\n"
             f"UTC date: {day}\n\n"
             f"Source: [`{revision}`](https://github.com/{repository}/commit/{revision})\n\n"
             f"Build: {run['html_url']}\n\nSHA-256: `{digest}`\n"

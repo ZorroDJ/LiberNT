@@ -2195,7 +2195,7 @@
 @ stub -arch=win64 ExSetLicenseTamperState
 @ stdcall ExSetResourceOwnerPointerEx(ptr ptr long)
 @ stdcall -version=0x603+ ExSetTimer(ptr int64 int64 ptr)
-@ stdcall -version=0x603+ -arch=arm64 ExShareAddressSpaceWithDevice(ptr ptr)
+@ stdcall -version=0x603+ -arch=win64 ExShareAddressSpaceWithDevice(ptr ptr)
 @ stub -arch=arm64 ExShareSystemAddressSpaceWithDevice
 @ stub -arch=win64 ExSizeOfAutoExpandPushLock
 @ stub -arch=arm64 ExStopSharingAddressSpaceWithDevice
@@ -2609,13 +2609,13 @@
 @ stub -arch=win64 KeReportCacheIncoherentDevice
 @ stdcall -arch=win64 KeRestoreExtendedProcessorState(ptr)
 @ stub -arch=arm64 KeRestoreProcessorState
-@ stdcall -arch=win64 KeRevertToUserGroupAffinityThread(ptr)
+@ stdcall KeRevertToUserGroupAffinityThread(ptr)
 @ stdcall -arch=win64 KeSaveExtendedProcessorState(int64 ptr)
 @ stdcall -arch=win64 KeSetActualBasePriorityThread(ptr long)
 @ stdcall -arch=win64 KeSetHardwareCounterConfiguration(ptr long)
 @ stdcall -arch=win64 KeSetHeteroCpuPolicyThread(ptr long long)
 @ stdcall -arch=win64 KeSetSelectedCpuSetsThread(ptr long ptr)
-@ stdcall -arch=win64,arm KeSetSystemGroupAffinityThread(ptr ptr)
+@ stdcall KeSetSystemGroupAffinityThread(ptr ptr)
 @ stdcall KeSetTargetProcessorDpcEx(ptr ptr)
 @ stdcall -version=0x603+ -arch=arm64 KeSetTimer2(ptr int64 int64 ptr)
 @ stdcall -arch=win64,arm KeShouldYieldProcessor()
@@ -3110,7 +3110,7 @@
 @ stub -arch=win64 RtlRbReplaceNode
 @ stdcall RtlRecordFeatureUsage(long long long ptr)
 @ stdcall RtlRegisterFeatureConfigurationChangeNotification(ptr ptr ptr ptr)
-@ stdcall RtlRegisterFeatureUsageProvider(ptr ptr)
+@ stdcall RtlRegisterFeatureUsageProvider(ptr ptr ptr long)
 @ stub -arch=win64 RtlRemovePointerMapping
 @ stub -arch=win64 RtlRemovePropertyStore
 @ stub -arch=win64 RtlReplaceSidInSd

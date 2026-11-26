@@ -13,6 +13,7 @@ extern void func_KnownFolderName(void);
 extern void func_LocalizedName(void);
 extern void func_SHAssocEnumHandlers(void);
 extern void func_SHGetDriveMedia(void);
+extern void func_StockIconResources(void);
 extern void func_Control_RunDLLW(void);
 extern void func_CFSFolder(void);
 extern void func_CheckEscapes(void);
@@ -31,6 +32,7 @@ extern void func_FindExecutable(void);
 extern void func_GetDisplayNameOf(void);
 extern void func_GUIDFromString(void);
 extern void func_IconPositions(void);
+extern void func_ImageAssociations(void);
 extern void func_ILCreateFromPath(void);
 extern void func_ILIsEqual(void);
 extern void func_Int64ToString(void);
@@ -88,6 +90,7 @@ extern void func_StartMenuPin(void);
 
 extern void func_Win81Ordinals(void);
 
+extern void func_LargeFileSize(void);
 extern void func_ModernShell(void);
 extern void func_Thumbnails(void);
 extern void func_ShellItemProperties(void);
@@ -98,6 +101,7 @@ extern void func_PreviewHandler(void);
 
 const struct test winetest_testlist[] =
 {
+    { "LargeFileSize", func_LargeFileSize },
     { "ModernShell", func_ModernShell },
     { "Thumbnails", func_Thumbnails },
     { "ShellItemProperties", func_ShellItemProperties },
@@ -117,6 +121,7 @@ const struct test winetest_testlist[] =
     { "LocalizedName", func_LocalizedName },
     { "SHAssocEnumHandlers", func_SHAssocEnumHandlers },
     { "SHGetDriveMedia", func_SHGetDriveMedia },
+    { "StockIconResources", func_StockIconResources },
     { "Control_RunDLLW", func_Control_RunDLLW },
     { "CFSFolder", func_CFSFolder },
     { "CheckEscapes", func_CheckEscapes },
@@ -135,6 +140,7 @@ const struct test winetest_testlist[] =
     { "GetDisplayNameOf", func_GetDisplayNameOf },
     { "GUIDFromString", func_GUIDFromString },
     { "IconPositions", func_IconPositions },
+    { "ImageAssociations", func_ImageAssociations },
     { "ILCreateFromPath", func_ILCreateFromPath },
     { "ILIsEqual", func_ILIsEqual },
     { "Int64ToString", func_Int64ToString },

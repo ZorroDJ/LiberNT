@@ -200,6 +200,26 @@ struct DataRun
 struct NonResidentMappingUpdate;
 typedef struct NonResidentMappingUpdate *PNonResidentMappingUpdate;
 
+typedef struct NtfsWimExtent
+{
+    ULONGLONG FileOffset;
+    ULONGLONG DiskOffset;
+    ULONGLONG Length;
+} NtfsWimExtent, *PNtfsWimExtent;
+
+typedef struct NtfsWimDataSource
+{
+    struct NtfsWimDataSource* Next;
+    ULONGLONG Id;
+    ULONG RecordNumber;
+    ULONGLONG Size;
+    ULONG ChunkSize;
+    BOOLEAN Compressed;
+    BOOLEAN Lzx;
+    ULONG ExtentCount;
+    PNtfsWimExtent Extents;
+} NtfsWimDataSource, *PNtfsWimDataSource;
+
 struct DataRunCacheEntry;
 typedef struct DataRunCacheEntry *PDataRunCacheEntry;
 
@@ -617,6 +637,9 @@ public:
      */
     ULONGLONG FreeClusterHint = 0;
 
+    ULONGLONG MftZoneStart = 0;
+    ULONGLONG MftZoneEnd = 0;
+
     ULONGLONG AllocationLimit = 0;
     ULONGLONG ReservedClusters = 0;
     BOOLEAN ReservedClustersKnown = FALSE;
@@ -709,6 +732,27 @@ public:
     ULONGLONG RecordCacheStamp[NTFS_SECURITY_CACHE_ENTRIES] = {};
     ULONG RecordCacheNext = 0;
 
+    /* WIM files of this volume that back its WOF pointer files; built when the volume opens and constant afterwards. */
+    PNtfsWimDataSource WimSources = NULL;
+
+    NTSTATUS
+    LoadWimDataSources();
+
+    PNtfsWimDataSource
+    FindWimDataSource(_In_ ULONGLONG DataSourceId);
+
+    BOOLEAN
+    IsWimDataSource(_In_ ULONG RecordNumber);
+
+    NTSTATUS
+    RemapWimDataSource(_In_ class FileRecord* File);
+
+    NTSTATUS
+    ReadWimDataSource(_In_ PNtfsWimDataSource Source,
+                      _Out_writes_bytes_(Length) PUCHAR Buffer,
+                      _In_ ULONG Length,
+                      _In_ ULONGLONG Offset);
+
     ~Volume();
 
     /**
@@ -761,7 +805,11 @@ public:
     AllocateClusters(_In_ ULONGLONG PreferredLCN,
                      _In_ ULONG ClusterCount,
                      _In_ ULONG MaxRuns,
-                     _Out_ PDataRun* Runs);
+                     _Out_ PDataRun* Runs,
+                     _In_ BOOLEAN ForMft = FALSE);
+
+    void
+    SetMftZone(_In_ ULONGLONG MftEndLcn);
 
     /*
      * Clears the $Bitmap bits for runs previously returned by
@@ -1289,7 +1337,7 @@ private:
     ULONG PendingEaInformation = 0;
     ULONG PendingReparseTag = 0;
     ULONG PendingStorageFlags = 0;
-    UCHAR WofProbeState = 0; /* 0 unknown, 1 absent/non-file, 2 present */
+    UCHAR WofProbeState = 0; /* 0 unknown, 1 absent/non-file, 2 present, 3 backed by a WIM and parsed on each read */
     ULONG WofAlgorithm = 0;
     ULONG WofChunkSize = 0;
 
