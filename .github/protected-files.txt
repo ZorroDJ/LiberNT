@@ -1,2 +1,3 @@
+.github/protected/build.yml .github/workflows/build.yml
 darkmode-analysis/protected/base/setup/libernt/updagent.c base/setup/libernt/updagent.c
 darkmode-analysis/protected/base/setup/libernt/lntupdate.inf base/setup/libernt/lntupdate.inf

@@ -4,10 +4,11 @@
   upstream into `master`, then calls **Build** for the exact resulting commit
   and **Publish ISO** for that build's artifacts. It also builds when upstream
   has no new commits.
-- `protected-files.txt` retains only the fork updater files that point at the
-  fork update channel and remember the installed tag. Other merge conflicts
-  abort the sync and open an issue; the remote fork is left unchanged. Update
-  canonical and active copies together when changing a protected file.
+- `protected-files.txt` retains the fork updater files that point at the fork
+  update channel and remember the installed tag, plus the fork's own Build
+  workflow so upstream CI changes do not alter the fork pipeline. Other merge
+  conflicts abort the sync and open an issue; the remote fork is left unchanged.
+  Update canonical and active copies together when changing a protected file.
 - **README.md is edited directly**, including from GitHub's web editor; no
   canonical copy replaces those edits. The scheduled sync retains the exact
   README from the fork commit before merging. For GitHub's native **Sync
