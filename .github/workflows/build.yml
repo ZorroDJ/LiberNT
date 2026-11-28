@@ -55,6 +55,8 @@ jobs:
 
     - name: Install host build tools
       run: |
+        # The runner image lists Microsoft's package repository, which can refuse access; the build needs nothing from it.
+        sudo grep -rlE 'packages\.microsoft\.com' /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null | xargs -r sudo rm -f
         # Every Ubuntu mirror can answer 503 for a minute or more; the whole install is retried after a pause.
         for attempt in 1 2 3 4; do
           if sudo apt-get update && sudo apt-get install -y cmake ninja-build flex bison ccache wget xz-utils tar python3-mako python3-yaml python3-packaging glslang-tools msitools; then
@@ -155,17 +157,9 @@ jobs:
       if: ${{ always() && steps.ccache_restore.outcome == 'success' }}
       run: ccache -s
 
-    # A cancelled build holds a partial cache: saving it would make it the newest and prune the full one
-    - name: Save ccache
-      id: ccache_save
-      if: ${{ !cancelled() && steps.ccache_restore.outcome == 'success' && github.event_name != 'pull_request' }}
-      uses: actions/cache/save@v5
-      with:
-        path: ccache
-        key: ${{ steps.ccache_restore.outputs.cache-primary-key }}
-
+    # Pruning first keeps two copies of a cache from pushing the store over its limit, where eviction drops the debug caches only the nightly run saves
     - name: Prune older ccache entries
-      if: ${{ !cancelled() && steps.ccache_save.outcome == 'success' }}
+      if: ${{ !cancelled() && steps.ccache_restore.outcome == 'success' && github.event_name != 'pull_request' }}
       continue-on-error: true
       env:
         GH_TOKEN: ${{ github.token }}
@@ -177,6 +171,15 @@ jobs:
         while read -r id; do
           gh cache delete "$id" --repo "$GITHUB_REPOSITORY" || true
         done
+
+    # A cancelled build holds a partial cache: saving it would make it the newest and prune the full one
+    - name: Save ccache
+      id: ccache_save
+      if: ${{ !cancelled() && steps.ccache_restore.outcome == 'success' && github.event_name != 'pull_request' }}
+      uses: actions/cache/save@v5
+      with:
+        path: ccache
+        key: ${{ steps.ccache_restore.outputs.cache-primary-key }}
 
     - name: Name artifacts
       id: images
