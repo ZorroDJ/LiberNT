@@ -135,6 +135,8 @@ jobs:
         [ "${{matrix.compiler}}" = "clang" ] && FLAGS="$FLAGS --clang"
         [ "${{matrix.compiler}}" = "gcc" ] && FLAGS="$FLAGS --gcc"
         [ "${{matrix.compiler}}" = "clang" ] && case "${{matrix.arch}}" in amd64|arm64|riscv64) FLAGS="$FLAGS -DENABLE_MESA_LLVMPIPE=ON" ;; esac
+        [ "$BUILD_TYPE" = "release" ] && FLAGS="$FLAGS -DBOOTLOADER_WIM_RAMDISK=ON"
+        [ "$BUILD_TYPE" = "release" ] && FLAGS="$FLAGS -DENABLE_LNTWEB=ON"
         ./configure.sh $FLAGS -a ${{matrix.arch}} \
           -DREACTOS_TARGET_NT=0xA00 \
           -DENABLE_CCACHE=1
